@@ -25,9 +25,9 @@ router.get('/search',  searchJobs);
 // Shift Management
 router.post('/:jobId/apply',  applyForJob); // Apply for a shift
 router.post('/:jobId/cancel', authMiddleware, cancelApplication); // Cancel an application
-router.get('/ongoing', getOngoingJobs);
-router.get('/completed', getCompletedJobs);
-router.get('/cancelled', getCancelledJobs);
+router.get('/ongoing', authMiddleware, getOngoingJobs);
+router.get('/completed',authMiddleware,  getCompletedJobs);
+router.get('/cancelled', authMiddleware, getCancelledJobs);
 
 
 module.exports = router;

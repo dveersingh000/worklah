@@ -7,11 +7,12 @@ const applicationSchema = new mongoose.Schema({
   date: { type: Date, required: true },
   isStandby: { type: Boolean, default: false },
   appliedStatus: { type: String, enum: ['Applied', 'Cancelled'], default: 'Applied' },
-  status: { type: String, enum: ['Upcoming', 'Applied', 'Completed', 'Cancelled'], default: 'Upcoming' },
+  status: { type: String, enum: ['Ongoing', 'Completed', 'Cancelled'], default: 'Ongoing' },
   appliedAt: { type: Date, default: Date.now },
-  cancelledAt: { type: Date }, // Optional, to track cancellation time
-  completedAt: { type: Date }, // Optional, to track completion time
-  reason: { type: String }, // Optional, to store cancellation reason
-});
+  cancelledAt: { type: Date },
+  completedAt: { type: Date }, 
+  reason: { type: String }, 
+  penalty: { type: Number, default: 0 },
+}, { timestamps: true });
 
 module.exports = mongoose.model('Application', applicationSchema);

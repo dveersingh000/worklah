@@ -276,7 +276,7 @@ exports.applyForJob = async (req, res) => {
     const { userId, jobId, shiftId, date, isStandby } = req.body;
 
     // Check if user exists and profile is completed
-    const user = await User.findById(userId).populate('profileId');
+    const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     if (!user.profileCompleted) {
@@ -289,8 +289,8 @@ exports.applyForJob = async (req, res) => {
 
     // Find the specific date
     const jobDate = job.dates.find(d => {
-      const storedDate = new Date(d.date).toISOString().split('T')[0]; // Convert to 'YYYY-MM-DD'
-      return storedDate === date; // Compare with the provided date
+      const storedDate = new Date(d.date).toISOString().split('T')[0];
+      return storedDate === date;
     });
 
     if (!jobDate) return res.status(404).json({ error: 'Job date not found' });
@@ -301,9 +301,9 @@ exports.applyForJob = async (req, res) => {
 
     // Validate vacancies
     if (!isStandby && shift.filledVacancies < shift.vacancy) {
-      shift.filledVacancies += 1; // Increment filled vacancies
+      shift.filledVacancies += 1;
     } else if (isStandby && shift.standbyFilled < shift.standbyVacancy) {
-      shift.standbyFilled += 1; // Increment standby filled
+      shift.standbyFilled += 1;
     } else {
       return res.status(400).json({ error: 'No vacancies available for this shift' });
     }
@@ -315,27 +315,13 @@ exports.applyForJob = async (req, res) => {
       shiftId,
       date,
       isStandby,
-      status: 'Upcoming',
+      status: 'Ongoing',
       appliedStatus: 'Applied',
     });
     await application.save();
 
-    // Add the application to the user's applications array
-    user.applications.push(application._id);
-    await user.save();
-
-    // Save the updated job
+    // Save updated job
     await job.save();
-
-    // Create a notification for the user
-    const notification = new Notification({
-      userId,
-      jobId,
-      type: 'Job',
-      title: 'Job Application Successful',
-      message: `You have successfully applied for the job: ${job.jobName}`,
-    });
-    await notification.save();
 
     res.status(200).json({ message: 'Job application successful', application });
   } catch (error) {
@@ -347,89 +333,138 @@ exports.cancelApplication = async (req, res) => {
   try {
     const { applicationId, reason } = req.body;
 
-    const application = await Application.findByIdAndUpdate(
-      applicationId,
-      { status: 'Cancelled', appliedStatus: 'Cancelled', reason, cancelledAt: new Date() },
-      { new: true }
-    );
+    // Find the application
+    const application = await Application.findById(applicationId);
+    if (!application) return res.status(404).json({ error: 'Application not found' });
 
-    if (!application) return res.status(404).json({ message: 'Application not found' });
+    // Calculate penalty based on the time of cancellation
+    const shiftStartTime = new Date(application.date).getTime();
+    const now = new Date().getTime();
+    const hoursToShift = (shiftStartTime - now) / (1000 * 60 * 60);
 
+    let penalty = 0;
+    if (hoursToShift < 1) {
+      penalty = 50; // No-show penalty
+    } else if (hoursToShift <= 24) {
+      penalty = 15;
+    } else if (hoursToShift <= 48) {
+      penalty = 10;
+    } else if (hoursToShift <= 72) {
+      penalty = 5;
+    }
+
+    // Update application with cancellation details
+    application.status = 'Cancelled';
+    application.appliedStatus = 'Cancelled';
+    application.reason = reason;
+    application.penalty = penalty;
+    application.cancelledAt = new Date();
+    await application.save();
+
+    // Update job and shift vacancies
+    const job = await Job.findById(application.jobId);
+    const jobDate = job.dates.find(d => new Date(d.date).toISOString().split('T')[0] === new Date(application.date).toISOString().split('T')[0]);
+    const shift = jobDate.shifts.find(s => s._id.toString() === application.shiftId.toString());
+
+    if (application.isStandby) {
+      shift.standbyFilled -= 1;
+    } else {
+      shift.filledVacancies -= 1;
+    }
+
+    await job.save();
+
+    // Notify the user
     const notification = new Notification({
       userId: application.userId,
       jobId: application.jobId,
       type: 'Job',
       title: 'Job Application Cancelled',
-      message: `Your application for job ${application.jobId} has been cancelled.`,
+      message: `Your application for job ${application.jobId} has been cancelled. Penalty applied: $${penalty}.`,
     });
-
     await notification.save();
 
-    res.status(200).json({ message: 'Application cancelled successfully', application });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(200).json({
+      message: 'Application cancelled successfully',
+      application,
+      penalty,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to cancel application', details: error.message });
   }
 };
 
 exports.getOngoingJobs = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
 
-    const applications = await Application.find({ userId, status: 'Applied' })
-      .populate('jobId', 'jobName jobIcon location jobStatus')
+    const applications = await Application.find({ userId, status: 'Ongoing' })
+      .populate('jobId', 'jobName jobIcon location')
       .populate('shiftId');
 
     const ongoingJobs = applications.map((app) => ({
       applicationId: app._id,
-      job: app.jobId,
-      shift: app.shiftId,
-      status: app.status,
+      jobName: app.jobId.jobName,
+      jobIcon: app.jobId.jobIcon,
+      location: app.jobId.location,
+      salary: app.shiftId.totalWage,
+      duration: `${app.shiftId.duration} hrs`,
+      jobStatus: 'Ongoing',
     }));
 
-    res.status(200).json(ongoingJobs);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(200).json({ success: true, jobs: ongoingJobs });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
 exports.getCompletedJobs = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
 
     const applications = await Application.find({ userId, status: 'Completed' })
-      .populate('jobId', 'jobName jobIcon location jobStatus')
+      .populate('jobId', 'jobName jobIcon location')
       .populate('shiftId');
 
     const completedJobs = applications.map((app) => ({
       applicationId: app._id,
-      job: app.jobId,
-      shift: app.shiftId,
-      status: app.status,
+      jobName: app.jobId.jobName,
+      jobIcon: app.jobId.jobIcon,
+      location: app.jobId.location,
+      salary: app.shiftId.totalWage,
+      duration: `${app.shiftId.duration} hrs`,
+      jobStatus: 'Completed',
     }));
 
-    res.status(200).json(completedJobs);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(200).json({ success: true, jobs: completedJobs });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
 exports.getCancelledJobs = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
 
     const applications = await Application.find({ userId, status: 'Cancelled' })
-      .populate('jobId', 'jobName jobIcon location jobStatus')
+      .populate('jobId', 'jobName jobIcon location')
       .populate('shiftId');
 
     const cancelledJobs = applications.map((app) => ({
       applicationId: app._id,
-      job: app.jobId,
-      shift: app.shiftId,
-      status: app.status,
+      jobName: app.jobId.jobName,
+      jobIcon: app.jobId.jobIcon,
+      location: app.jobId.location,
+      salary: app.shiftId.totalWage,
+      duration: `${app.shiftId.duration} hrs`,
+      jobStatus: 'Cancelled',
     }));
 
-    res.status(200).json(cancelledJobs);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(200).json({ success: true, jobs: cancelledJobs });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
