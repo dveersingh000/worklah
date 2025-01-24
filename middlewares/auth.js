@@ -50,10 +50,13 @@ const authMiddleware = async (req, res, next) => {
     return res.status(401).json({ message: "Unauthorized: No token provided" });
   }
 // 6790e9ed5e4bb2ef37a3c99c
+// console.log(token);
   try {
     // Verify the token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // console.log(decoded);
     const user = await User.findById(decoded.id).select("-password");
+    // console.log(user);
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });

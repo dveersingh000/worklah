@@ -13,7 +13,7 @@ const router = express.Router();
 router.get('/', authMiddleware, getNotifications); 
 router.patch('/:id/read',authMiddleware,  markAsRead); 
 router.get('/unread',authMiddleware,  getUnreadCount);
-router.delete('/:id',  deleteNotification); 
+router.delete('/:id', authMiddleware,  deleteNotification); 
 router.post('/', createNotification); 
 
 module.exports = router;

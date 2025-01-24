@@ -4,17 +4,26 @@ const Notification = require('../models/Notification');
 exports.getNotifications = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
+    // const userId = req.user._id;
 
-    const notifications = await Notification.find({ user: req.user._id })
+    const notifications = await Notification.find({ userId: req.user._id })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(Number(limit))
-      .select('type message read icon createdAt');
+      .select('type message isRead icon createdAt');
 
-      res.status(200).json({ notifications });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+    // const totalNotifications = await Notification.countDocuments({ user: req.user._id });
+
+    res.status(200).json({
+      success: true,
+       notifications,
+      // totalNotifications,
+      // totalPages: Math.ceil(totalNotifications / limit),
+      // currentPage: Number(page),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
 
 // Mark notification as read
