@@ -1,5 +1,6 @@
 const Profile = require("../models/Profile");
 const User = require("../models/User");
+const Application = require("../models/Application");
 const Job = require("../models/Job");
 const mongoose = require("mongoose");
 
@@ -36,7 +37,7 @@ exports.completeProfile = async (req, res) => {
 
     // Update fields based on employment status
     switch (user.employmentStatus) {
-      case 'Singaporean/PR':
+      case 'PR':
         profile.nricNumber = nricNumber;
         profile.nricImages = {
           front: req.files?.nricFront?.[0]?.path || null,
@@ -85,29 +86,83 @@ exports.completeProfile = async (req, res) => {
 };
 
 
+// Fetch profile
+
 exports.getProfile = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const user = await User.findById(userId).populate('profileId');
+    // Fetch the user and populate their profile
+    const user = await User.findById(userId).populate("profileId");
     if (!user) return res.status(404).json({ error: "User not found." });
 
     const profile = user.profileId;
-    if (!profile) return res.status(404).json({ error: "Profile not found." });
+
+    // If the profile is incomplete, return basic user details
+    if (!user.profileCompleted) {
+      return res.status(200).json({
+        message: "Profile incomplete. Please complete your profile.",
+        fullName: user.fullName || null,
+        phoneNumber: user.phoneNumber || null,
+        email: user.email || null,
+        profilePicture: user.profilePicture || "/static/image.png",
+      });
+    }
+
+    // Fetch statistics dynamically
+    const totalCompletedJobs = await Application.countDocuments({
+      userId: user._id,
+      status: "Completed",
+    });
+
+    const totalCancelledJobs = await Application.countDocuments({
+      userId: user._id,
+      status: "Cancelled",
+    });
+
+    const totalHoursWorked = await Application.aggregate([
+      {
+        $match: {
+          userId: new mongoose.Types.ObjectId(userId),
+          status: "Completed",
+        },
+      },
+      {
+        $lookup: {
+          from: "jobs",
+          localField: "jobId",
+          foreignField: "_id",
+          as: "jobDetails",
+        },
+      },
+      { $unwind: "$jobDetails" },
+      { $unwind: "$jobDetails.dates" }, // Flatten dates array
+      { $unwind: "$jobDetails.dates.shifts" }, // Flatten shifts array
+      {
+        $group: {
+          _id: null,
+          totalHours: { $sum: "$jobDetails.dates.shifts.duration" },
+        },
+      },
+    ]);
 
     res.status(200).json({
       profile,
-      profilePicture: user.profilePicture,
-      fullName: user.fullName,
-      phoneNumber: user.phoneNumber,
-      email: user.email,
+      profilePicture: user.profilePicture || "/static/image.png",
+      stats: {
+        totalCompletedJobs: totalCompletedJobs || 0,
+        totalCancelledJobs: totalCancelledJobs || 0,
+        totalHoursWorked: totalHoursWorked[0]?.totalHours || 0,
+      },
       employmentStatus: user.employmentStatus,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      fullName: user.fullName,
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch profile.", details: err.message });
   }
 };
-
 
 exports.updateProfile = async (req, res) => {
   try {
@@ -125,11 +180,11 @@ exports.updateProfile = async (req, res) => {
     // Update common fields
     if (updates.dob) profile.dob = updates.dob;
     if (updates.gender) profile.gender = updates.gender;
-    if (updates.postalCode) profile.postalCode = updates.postalCode;
+    // if (updates.postalCode) profile.postalCode = updates.postalCode;
 
     // Update fields based on employment status
     switch (user.employmentStatus) {
-      case 'Singaporean/PR':
+      case 'PR':
         if (updates.nricNumber) profile.nricNumber = updates.nricNumber;
         if (req.files?.nricFront?.[0]?.path || req.files?.nricBack?.[0]?.path) {
           profile.nricImages = {
@@ -179,48 +234,57 @@ exports.getProfileStats = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const totalCompletedJobs = await Job.countDocuments({
-      applicants: { $elemMatch: { user: new mongoose.Types.ObjectId(userId) } },
+    // Count total completed jobs
+    const totalCompletedJobs = await Application.countDocuments({
+      userId: new mongoose.Types.ObjectId(userId),
       status: "Completed",
     });
 
-    const totalCancelledJobs = await Job.countDocuments({
-      applicants: { $elemMatch: { user: new mongoose.Types.ObjectId(userId) } },
+    // Count total cancelled jobs
+    const totalCancelledJobs = await Application.countDocuments({
+      userId: new mongoose.Types.ObjectId(userId),
       status: "Cancelled",
     });
 
-    const totalHoursWorked = await Job.aggregate([
+    // Aggregate total hours worked from completed jobs
+    const totalHoursWorked = await Application.aggregate([
       {
         $match: {
-          applicants: { $elemMatch: { user: new mongoose.Types.ObjectId(userId) } },
+          userId: new mongoose.Types.ObjectId(userId),
           status: "Completed",
         },
       },
       {
         $lookup: {
-          from: "shifts",
-          localField: "shifts",
+          from: "jobs",
+          localField: "jobId",
           foreignField: "_id",
-          as: "shiftDetails",
+          as: "jobDetails",
         },
       },
-      { $unwind: "$shiftDetails" },
+      { $unwind: "$jobDetails" }, // Unwind the job details
+      { $unwind: "$jobDetails.dates" }, // Unwind dates array
+      { $unwind: "$jobDetails.dates.shifts" }, // Unwind shifts array
       {
         $group: {
           _id: null,
-          totalHours: { $sum: "$shiftDetails.duration" },
+          totalHours: { $sum: "$jobDetails.dates.shifts.duration" }, // Sum up shift durations
         },
       },
     ]);
 
+    // Placeholder for no-show jobs, implement logic if needed
+    const noShowJobs = 0;
+
     res.status(200).json({
-      totalCompletedJobs,
-      totalCancelledJobs,
-      noShowJobs: 0, // Placeholder for no-show jobs
+      totalCompletedJobs: totalCompletedJobs || 0,
+      totalCancelledJobs: totalCancelledJobs || 0,
+      noShowJobs,
       totalHoursWorked: totalHoursWorked[0]?.totalHours || 0,
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch profile stats.", details: err.message });
   }
 };
+
 

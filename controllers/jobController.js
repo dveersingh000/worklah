@@ -9,7 +9,7 @@ const mongoose = require('mongoose');
 // Create a new job
 exports.createJob = async (req, res) => {
   try {
-    const { jobName, jobIcon, employerId, outletId, dates, location, locationCoordinates, requirements, jobStatus } = req.body;
+    const { jobName, subtitle, jobIcon, employerId, outletId, dates, location, locationCoordinates, requirements, jobStatus } = req.body;
 
     // Validate employer and outlet
     const employer = await Employer.findById(employerId);
@@ -36,6 +36,7 @@ exports.createJob = async (req, res) => {
 
     const job = new Job({
       jobName,
+      subtitle,
       jobIcon,
       employer: employerId,
       outlet: outletId,
@@ -117,11 +118,12 @@ exports.searchJobs = async (req, res) => {
 exports.getAllJobs = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
+    
 
     // Fetch job data with selected fields
-    const jobs = await Job.find({}, 'jobName location jobIcon jobStatus postedDate dates')
-      .populate('employer', 'companyName')
-      .populate('outlet', 'outletName location outletImage')
+    const jobs = await Job.find({})
+      .populate('employer', '_id  companyName contractEndDate companyLogo')
+      .populate('outlet', '_id outletName location outletImage outletType')
       .skip((page - 1) * limit)
       .limit(Number(limit));
 
@@ -146,29 +148,65 @@ exports.getAllJobs = async (req, res) => {
       const applicationCount = applicationCountMap[job._id] || 0; // Default to 0 if no applications
       const popularity = Math.min(applicationCount * 10, 100); // Scale popularity (max 100%)
 
+      const totalPotentialWages = job.dates.reduce((total, date) => {
+        return (
+          total +
+          date.shifts.reduce((shiftTotal, shift) => shiftTotal + shift.totalWage, 0)
+        );
+      }, 0);
+
+      // Calculate total pay rate
+   const totalPayRate = job.dates.reduce((total, date) => {
+    return (
+      total +
+      date.shifts.reduce((shiftTotal, shift) => {
+        const effectiveHours = shift.duration - shift.breakHours; // Deduct break hours from duration
+        return shiftTotal + shift.payRate * effectiveHours;
+      }, 0)
+    );
+  }, 0);
+
+      const totalVacancies = job.dates.reduce((total, date) => {
+        return (
+          total +
+          date.shifts.reduce((shiftTotal, shift) => shiftTotal + shift.vacancy, 0)
+        );
+      }, 0);
 
       const datesWithShifts = job.dates.map((date) => ({
         date: date.date,
         shifts: date.shifts.map((shift) => ({
+          _id: shift._id,
           startTime: shift.startTime,
           duration: shift.duration,
           payRate: shift.payRate,
           totalWage: shift.totalWage,
           breakHours: shift.breakHours,
+          vacancy: shift.vacancy,
+          standbyVacancy: shift.standbyVacancy,
+          filledVacancies: shift.filledVacancies,
+          duration: shift.duration,
+
         })),
       }));
 
       return {
         _id: job._id,
         jobName: job.jobName,
+        subtitle: job.subtitle,
+        subtitleIcon: job.subtitleIcon,
         jobIcon: job.jobIcon,
         location: job.location,
         jobStatus: job.jobStatus,
+        totalPotentialWages,
+        totalVacancies,
+        totalPayRate,
+        popularity: `${popularity}%`,
         postedDate: job.postedDate,
         employer: job.employer,
         outlet: job.outlet,
-        popularity: `${popularity}%`,
         dates: datesWithShifts,
+        
       };
     });
 
@@ -188,6 +226,9 @@ exports.getAllJobs = async (req, res) => {
 exports.getJobById = async (req, res) => {
   try {
     const userId = req.user.id;
+    // Fetch the current user
+    const user = await User.findById(userId);
+
     const applied = await Application.findOne({
       jobId: new mongoose.Types.ObjectId(req.params.id),
       userId: new mongoose.Types.ObjectId(userId),
@@ -195,14 +236,16 @@ exports.getJobById = async (req, res) => {
     });
 
     const job = await Job.findById(req.params.id)
-      .populate('employer', 'companyName contractEndDate')
-      .populate('outlet', 'outletName location');
+      .populate('employer', '_id  companyName contractEndDate companyLogo')
+      .populate('outlet', '_id outletName location outletImage outletType');
 
     if (!job) return res.status(404).json({ message: 'Job not found' });
 
     const formattedJob = {
       _id: job._id,
   jobName: job.jobName,
+  subtitle: job.subtitle,
+  subtitleIcon: job.subtitleIcon,
   jobIcon: job.jobIcon,
   jobStatus: job.jobStatus,
   postedDate: job.postedDate,
@@ -212,29 +255,66 @@ exports.getJobById = async (req, res) => {
       date.shifts.reduce((shiftTotal, shift) => shiftTotal + shift.totalWage, 0)
     );
   }, 0), // Calculate total salary
+
+  totalPotentialWages: job.dates.reduce((total, date) => {
+    return (
+      total +
+      date.shifts.reduce((shiftTotal, shift) => shiftTotal + shift.totalWage, 0)
+    );
+  }, 0),
+  
+  // Calculate total pay rate
+   totalPayRate: job.dates.reduce((total, date) => {
+    return (
+      total +
+      date.shifts.reduce((shiftTotal, shift) => {
+        const effectiveHours = shift.duration - shift.breakHours; // Deduct break hours from duration
+        return shiftTotal + shift.payRate * effectiveHours;
+      }, 0)
+    );
+  }, 0),
+
+
+  totalVacancies: job.dates.reduce((total, date) => {
+    return (
+      total +
+      date.shifts.reduce((shiftTotal, shift) => shiftTotal + shift.vacancy, 0)
+    );
+  }, 0),
+
   applied: applied ? true : false,
+  profileCompleted: user?.profileCompleted || false, 
   location: job.location,
   locationCoordinates: job.locationCoordinates,
   requirements: job.requirements,
   shiftsAvailable: job.dates.map((date) => ({
     date: date.date,
     shifts: date.shifts.map((shift) => ({
+      _id: shift._id,
       startTime: shift.startTime,
       endTime: shift.endTime,
       payRate: shift.payRate,
-      totalWage: shift.totalWage,
       vacancy: shift.vacancy,
       standbyVacancy: shift.standbyVacancy,
+      filledVacancies: shift.filledVacancies,
+      standbyFilled: shift.standbyFilled,
+      duration: shift.duration,
+      breakHours: shift.breakHours,
+      totalWage: shift.totalWage,
     })),
   })),
   employer: {
+    _id: job.employer._id,
     name: job.employer.companyName,
+    companyLogo: job.employer.companyLogo,
     contractEndDate: job.employer.contractEndDate,
   },
   outlet: {
+    _id: job.outlet._id,
     name: job.outlet.outletName,
     location: job.outlet.location,
-    outletImage: job.outlet.outletImage
+    outletImage: job.outlet.outletImage,
+    ouletType: job.outlet.outletType
   },
 };
     res.status(200).json(formattedJob);

@@ -15,6 +15,7 @@ const userSchema = new mongoose.Schema(
       default: '/static/image.png',
     },
     role: { type: String, enum: ['ADMIN', 'USER'], default: 'USER' },
+    eWallet: { type: Number, default: 0 },
     createdAt: { type: Date, default: Date.now },
     lastLogin: { type: Date },
   });

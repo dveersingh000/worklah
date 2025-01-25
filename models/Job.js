@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 
 const jobSchema = new mongoose.Schema({
   jobName: { type: String, required: true },
+  subtitle: { type: String, default: 'Food Dynasty (United Square)' },
+  subtitleIcon: { type: String, default: '/static/subTitleIcon.png' },
   jobIcon: { type: String, default: '/static/jobIcon.png' },
   employer: { type: mongoose.Schema.Types.ObjectId, ref: "Employer", required: true },
   outlet: { type: mongoose.Schema.Types.ObjectId, ref: "Outlet", required: true },
@@ -32,8 +34,8 @@ const jobSchema = new mongoose.Schema({
     longitude: { type: Number, required: true },
   },
   requirements: {
-    jobScopeDescription: { type: String, required: true },
-    jobRequirements: { type: String, required: true },
+    jobScopeDescription: { type: [String], required: true },
+    jobRequirements: { type: [String], required: true },
   },
   postedDate: { type: Date, default: Date.now },
   jobStatus: { type: String, enum: ['Active', 'Completed', 'Cancelled', "Upcoming"], default: 'Active' },
