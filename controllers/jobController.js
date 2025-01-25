@@ -469,77 +469,271 @@ exports.cancelApplication = async (req, res) => {
   }
 };
 
-exports.getOngoingJobs = async (req, res) => {
+// exports.getOngoingJobs = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
+
+//     const applications = await Application.find({ userId, status: 'Ongoing' })
+//       .populate('jobId', 'jobName jobIcon location')
+//       .populate('shiftId');
+
+//     const ongoingJobs = applications.map((app) => ({
+//       applicationId: app._id,
+//       jobName: app.jobId.jobName,
+//       jobIcon: app.jobId.jobIcon,
+//       location: app.jobId.location,
+//       salary: app.shiftId.totalWage,
+//       duration: `${app.shiftId.duration} hrs`,
+//       jobStatus: 'Ongoing',
+//     }));
+
+//     res.status(200).json({ success: true, jobs: ongoingJobs });
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ success: false, error: error.message });
+//   }
+// };
+
+// exports.getCompletedJobs = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
+
+//     const applications = await Application.find({ userId, status: 'Completed' })
+//       .populate('jobId', 'jobName jobIcon location')
+//       .populate('shiftId');
+
+//     const completedJobs = applications.map((app) => ({
+//       applicationId: app._id,
+//       jobName: app.jobId.jobName,
+//       jobIcon: app.jobId.jobIcon,
+//       location: app.jobId.location,
+//       salary: app.shiftId.totalWage,
+//       duration: `${app.shiftId.duration} hrs`,
+//       jobStatus: 'Completed',
+//     }));
+
+//     res.status(200).json({ success: true, jobs: completedJobs });
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ success: false, error: error.message });
+//   }
+// };
+
+// exports.getCancelledJobs = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
+
+//     const applications = await Application.find({ userId, status: 'Cancelled' })
+//       .populate('jobId', 'jobName jobIcon location')
+//       .populate('shiftId');
+
+//     const cancelledJobs = applications.map((app) => ({
+//       applicationId: app._id,
+//       jobName: app.jobId.jobName,
+//       jobIcon: app.jobId.jobIcon,
+//       location: app.jobId.location,
+//       salary: app.shiftId.totalWage,
+//       duration: `${app.shiftId.duration} hrs`,
+//       jobStatus: 'Cancelled',
+//     }));
+
+//     res.status(200).json({ success: true, jobs: cancelledJobs });
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ success: false, error: error.message });
+//   }
+// };
+
+exports.getOngoingShifts = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const ongoingShifts = [
+      {
+        jobName: "Waiter",
+        jobIcon: "/static/jobIcon.png",
+        subtitle: "Food Dynasty (United Square)",
+        subtitleIcon: "/static/subTitleIcon.png",
+        outletImage: "/static/Job.png",
+        location: "Food Dynasty (United Square)",
+        duration: "3 Hrs",
+        salary: "$36",
+      },
+    ];
 
-    const applications = await Application.find({ userId, status: 'Ongoing' })
-      .populate('jobId', 'jobName jobIcon location')
-      .populate('shiftId');
-
-    const ongoingJobs = applications.map((app) => ({
-      applicationId: app._id,
-      jobName: app.jobId.jobName,
-      jobIcon: app.jobId.jobIcon,
-      location: app.jobId.location,
-      salary: app.shiftId.totalWage,
-      duration: `${app.shiftId.duration} hrs`,
-      jobStatus: 'Ongoing',
-    }));
-
-    res.status(200).json({ success: true, jobs: ongoingJobs });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(200).json({
+      success: true,
+      shifts: ongoingShifts,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
-exports.getCompletedJobs = async (req, res) => {
+
+exports.getCompletedShifts = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const completedShifts = [
+      {
+        jobName: "Waiter",
+        jobIcon: "/static/jobIcon.png",
+        subtitle: "Food Dynasty (United Square)",
+        subtitleIcon: "/static/subTitleIcon.png",
+        outletImage: "/static/Job.png",
+        location: "Food Dynasty (United Square)",
+        duration: "3 Hrs",
+        salary: "$36",
+        payRate: "$12/hr",
+        status: "Completed",
+      },
+    ];
 
-    const applications = await Application.find({ userId, status: 'Completed' })
-      .populate('jobId', 'jobName jobIcon location')
-      .populate('shiftId');
-
-    const completedJobs = applications.map((app) => ({
-      applicationId: app._id,
-      jobName: app.jobId.jobName,
-      jobIcon: app.jobId.jobIcon,
-      location: app.jobId.location,
-      salary: app.shiftId.totalWage,
-      duration: `${app.shiftId.duration} hrs`,
-      jobStatus: 'Completed',
-    }));
-
-    res.status(200).json({ success: true, jobs: completedJobs });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(200).json({
+      success: true,
+      shifts: completedShifts,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
-exports.getCancelledJobs = async (req, res) => {
+
+exports.getCanceledShifts = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const canceledShifts = [
+      {
+        jobName: "Waiter",
+        jobIcon: "/static/jobIcon.png",
+        subtitle: "Food Dynasty (United Square)",
+        subtitleIcon: "/static/subTitleIcon.png",
+        outletImage: "/static/Job.png",
+        location: "Food Dynasty (United Square)",
+        duration: "3 Hrs",
+        salary: "$36",
+        payRate: "$12/hr",
+        status: "Cancelled",
+      },
+    ];
 
-    const applications = await Application.find({ userId, status: 'Cancelled' })
-      .populate('jobId', 'jobName jobIcon location')
-      .populate('shiftId');
+    res.status(200).json({
+      success: true,
+      shifts: canceledShifts,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
 
-    const cancelledJobs = applications.map((app) => ({
-      applicationId: app._id,
-      jobName: app.jobId.jobName,
-      jobIcon: app.jobId.jobIcon,
-      location: app.jobId.location,
-      salary: app.shiftId.totalWage,
-      duration: `${app.shiftId.duration} hrs`,
-      jobStatus: 'Cancelled',
-    }));
+exports.getLinkedBanks = async (req, res) => {
+  try {
+    const banks = [
+      {
+        bankId: "BANK123",
+        bankName: "DBS",
+        accountNumber: "**** 3456",
+        linked: true,
+      },
+      {
+        bankId: "BANK124",
+        bankName: "OCBC",
+        accountNumber: "**** 5678",
+        linked: false,
+      },
+    ];
 
-    res.status(200).json({ success: true, jobs: cancelledJobs });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(200).json({
+      success: true,
+      banks,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
+exports.addBank = async (req, res) => {
+  try {
+    const { bankName, accountNumber } = req.body;
+
+    // Dummy response for adding a bank
+    const bank = {
+      bankId: "BANK125",
+      bankName,
+      accountNumber,
+      linked: true,
+    };
+
+    res.status(201).json({
+      success: true,
+      message: "Bank linked successfully.",
+      bank,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.getWalletBalance = async (req, res) => {
+  try {
+    const walletBalance = 4553; // Dummy balance
+    res.status(200).json({
+      success: true,
+      balance: walletBalance,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.addCashout = async (req, res) => {
+  try {
+    const { amount, bankId } = req.body;
+
+    // Dummy response for cashout request
+    const transaction = {
+      transactionId: "TRANS003",
+      type: "Cashout",
+      amount: -amount,
+      fee: -1.5,
+      timestamp: new Date().toISOString(),
+    };
+
+    res.status(201).json({
+      success: true,
+      message: "Cash out request successfully created.",
+      transaction,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.getTransactions = async (req, res) => {
+  try {
+    // Dummy data
+    const transactions = [
+      {
+        transactionId: "TRANS001",
+        type: "Cashout",
+        amount: -49.50,
+        fee: -0.60,
+        timestamp: "2024-06-07T15:10:00Z",
+      },
+      {
+        transactionId: "TRANS002",
+        type: "Received",
+        amount: 49.50,
+        fee: 0,
+        timestamp: "2024-06-07T15:10:00Z",
+      },
+    ];
+
+    const walletBalance = 4553; // Dummy wallet balance
+
+    res.status(200).json({
+      success: true,
+      walletBalance,
+      transactions,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 };
