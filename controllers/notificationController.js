@@ -4,9 +4,9 @@ const Notification = require('../models/Notification');
 exports.getNotifications = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
-    // const userId = req.user._id;
+    const userId = req.user._id;
 
-    const notifications = await Notification.find({ userId: req.user._id })
+    const notifications = await Notification.find({ userId })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(Number(limit))

@@ -378,14 +378,31 @@ exports.applyForJob = async (req, res) => {
     });
     await application.save();
 
+    // Add application reference to the user's applications array
+    user.applications.push(application._id);
+    await user.save();
+
     // Save updated job
     await job.save();
 
+    // Create a notification for the user
+    const notification = new Notification({
+      userId,
+      jobId,
+      type: 'Job',
+      title: 'Job Application Successful',
+      message: `You have successfully applied for the job "${job.jobName}".`,
+      isRead: false,
+    });
+    await notification.save();
+
     res.status(200).json({ message: 'Job application successful', application });
   } catch (error) {
+    console.error('Error in applyForJob:', error.message);
     res.status(500).json({ error: 'Failed to apply for the job', details: error.message });
   }
 };
+
 
 exports.cancelApplication = async (req, res) => {
   try {
