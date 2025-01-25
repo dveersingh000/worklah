@@ -1,5 +1,5 @@
 const express = require("express");
-const { completeProfile, getProfile, updateProfile, getProfileStats } = require("../controllers/profileController");
+const { completeProfile, getProfile, updateProfile, getProfileStats, getWalletDetails, cashOut , addCreditToWallet} = require("../controllers/profileController");
 const { uploadMiddleware } = require('../middlewares/upload');
 const { authMiddleware } = require("../middlewares/auth");
 
@@ -22,5 +22,9 @@ router.post(
     ]),
     completeProfile
 );
+
+router.get("/wallet", authMiddleware, getWalletDetails);
+router.post("/cashout", authMiddleware, cashOut);
+router.post("/add-credit", authMiddleware, addCreditToWallet);
 
 module.exports = router;

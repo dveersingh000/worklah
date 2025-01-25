@@ -9,7 +9,7 @@ const mongoose = require('mongoose');
 // Create a new job
 exports.createJob = async (req, res) => {
   try {
-    const { jobName, subtitle, jobIcon, employerId, outletId, dates, location, locationCoordinates, requirements, jobStatus } = req.body;
+    const { jobName, subtitle, subtitleIcon, jobIcon, employerId, outletId, dates, location, locationCoordinates, requirements, jobStatus, postedDate } = req.body;
 
     // Validate employer and outlet
     const employer = await Employer.findById(employerId);
@@ -37,6 +37,7 @@ exports.createJob = async (req, res) => {
     const job = new Job({
       jobName,
       subtitle,
+      subtitleIcon,
       jobIcon,
       employer: employerId,
       outlet: outletId,
@@ -44,7 +45,8 @@ exports.createJob = async (req, res) => {
       location,
       requirements,
       locationCoordinates,
-      jobStatus
+      jobStatus,
+      postedDate
     });
 
     await job.save();
@@ -57,62 +59,38 @@ exports.createJob = async (req, res) => {
 
 exports.searchJobs = async (req, res) => {
   try {
-    const { jobName, location, status } = req.query;
+    const { jobName, location, status, employerId, outletId } = req.query;
+
+    // Validate ObjectId inputs
+    if (employerId && !mongoose.Types.ObjectId.isValid(employerId)) {
+      return res.status(400).json({ error: "Invalid Employer ID" });
+    }
+    if (outletId && !mongoose.Types.ObjectId.isValid(outletId)) {
+      return res.status(400).json({ error: "Invalid Outlet ID" });
+    }
 
     // Build filters dynamically
     const filters = {};
     if (jobName) filters.jobName = { $regex: jobName, $options: "i" }; // Case-insensitive regex for jobName
     if (location) filters.location = { $regex: location, $options: "i" }; // Case-insensitive regex for location
     if (status) filters.jobStatus = status; // Exact match for job status
+    if (employerId) filters.employer = mongoose.Types.ObjectId(employerId);
+    if (outletId) filters.outlet = mongoose.Types.ObjectId(outletId);
 
     // Fetch jobs based on filters
     const jobs = await Job.find(filters)
       .populate("employer", "companyName")
       .populate("outlet", "outletName location outletImage");
 
-    // Map and format the response to include necessary details
-    const formattedJobs = jobs.map((job) => ({
-      id: job._id,
-      jobName: job.jobName,
-      jobIcon: job.jobIcon,
-      location: job.location,
-      jobStatus: job.jobStatus,
-      employer: {
-        name: job.employer?.companyName || "N/A",
-      },
-      outlet: {
-        name: job.outlet?.outletName || "N/A",
-        location: job.outlet?.location || "N/A",
-        outletImage: job.outlet?.outletImage || "/static/defaultOutlet.png",
-      },
-      shiftsAvailable: job.dates.map((date) => ({
-        date: date.date,
-        shifts: date.shifts.map((shift) => ({
-          startTime: shift.startTime,
-          endTime: shift.endTime,
-          payRate: shift.payRate,
-          totalWage: shift.totalWage,
-          vacancy: shift.vacancy,
-          standbyVacancy: shift.standbyVacancy,
-        })),
-      })),
-    }));
-
-    // Return success response
-    res.status(200).json({
-      success: true,
-      jobs: formattedJobs,
-    });
+    res.status(200).json({ success: true, jobs });
   } catch (error) {
     console.error("Error in searchJobs:", error);
     res.status(500).json({
-      success: false,
       error: "Failed to search jobs",
       details: error.message,
     });
   }
 };
-
 
 // Get all jobs with pagination
 exports.getAllJobs = async (req, res) => {

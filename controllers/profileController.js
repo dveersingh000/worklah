@@ -19,9 +19,9 @@ exports.completeProfile = async (req, res) => {
       plocExpiryDate,
     } = req.body;
 
-    const user = await User.findById(userId).populate('profileId');
+    const user = await User.findById(userId).populate("profileId");
     if (!user) {
-      return res.status(404).json({ error: 'User not found.' });
+      return res.status(404).json({ error: "User not found." });
     }
 
     // Fetch or create a new profile
@@ -30,6 +30,17 @@ exports.completeProfile = async (req, res) => {
       profile = new Profile({ userId });
     }
 
+    // Clear all fields to avoid saving unnecessary data
+    profile.nricNumber = undefined;
+    profile.nricImages = undefined;
+    profile.finNumber = undefined;
+    profile.finImages = undefined;
+    profile.plocImage = undefined;
+    profile.plocExpiryDate = undefined;
+    profile.studentIdNumber = undefined;
+    profile.schoolName = undefined;
+    profile.studentCardImage = undefined;
+
     // Update common fields
     profile.dob = dob;
     profile.gender = gender;
@@ -37,14 +48,23 @@ exports.completeProfile = async (req, res) => {
 
     // Update fields based on employment status
     switch (user.employmentStatus) {
-      case 'PR':
+      case "PR":
+        if (!nricNumber) {
+          return res.status(400).json({ error: "NRIC Number is required for PR." });
+        }
         profile.nricNumber = nricNumber;
         profile.nricImages = {
           front: req.files?.nricFront?.[0]?.path || null,
           back: req.files?.nricBack?.[0]?.path || null,
         };
         break;
-      case 'LTVP':
+
+      case "LTVP":
+        if (!finNumber || !plocExpiryDate) {
+          return res.status(400).json({
+            error: "FIN Number and PLOC Expiry Date are required for LTVP.",
+          });
+        }
         profile.finNumber = finNumber;
         profile.finImages = {
           front: req.files?.finFront?.[0]?.path || null,
@@ -53,21 +73,31 @@ exports.completeProfile = async (req, res) => {
         profile.plocImage = req.files?.plocImage?.[0]?.path || null;
         profile.plocExpiryDate = plocExpiryDate;
         break;
-      case 'Student':
+
+      case "Student":
+        if (!studentIdNumber || !schoolName) {
+          return res.status(400).json({
+            error: "Student ID Number and School Name are required for Students.",
+          });
+        }
         profile.studentIdNumber = studentIdNumber;
         profile.schoolName = schoolName;
-        profile.studentCardImage = req.files?.studentCard?.[0]?.path || null;
+        profile.studentCardImage =
+          req.files?.studentCard?.[0]?.path || null;
         break;
+
       default:
-        break;
+        return res.status(400).json({ error: "Invalid employment status." });
     }
 
     // Update the selfie/profile picture if uploaded
     if (req.files?.selfie?.[0]?.path) {
       user.profilePicture = req.files.selfie[0].path;
     }
+
     await profile.save();
     user.profileCompleted = true;
+
     // Link profile to the user if not already linked
     if (!user.profileId) {
       user.profileId = profile._id;
@@ -76,14 +106,16 @@ exports.completeProfile = async (req, res) => {
     await user.save();
 
     res.status(200).json({
-      message: 'Profile completed successfully.',
+      message: "Profile completed successfully.",
       profile,
       profilePicture: user.profilePicture,
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to complete profile.', details: error.message });
+    res.status(500).json({ error: "Failed to complete profile.", details: error.message });
   }
 };
+
+
 
 
 // Fetch profile
@@ -108,6 +140,13 @@ exports.getProfile = async (req, res) => {
         profilePicture: user.profilePicture || "/static/image.png",
       });
     }
+
+    // Fetch wallet details
+    // const walletDetails = {
+    //   balance: user.eWallet.balance,
+    //   // transactions: user.eWallet.transactions.slice(-5), // Recent 5 transactions
+    // };
+    const walletDetails = user.eWallet;
 
     // Fetch statistics dynamically
     const totalCompletedJobs = await Application.countDocuments({
@@ -149,6 +188,7 @@ exports.getProfile = async (req, res) => {
     res.status(200).json({
       profile,
       profilePicture: user.profilePicture || "/static/image.png",
+      wallet: walletDetails,
       stats: {
         totalCompletedJobs: totalCompletedJobs || 0,
         totalCancelledJobs: totalCancelledJobs || 0,
@@ -288,3 +328,80 @@ exports.getProfileStats = async (req, res) => {
 };
 
 
+exports.getWalletDetails = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    res.status(200).json({
+      eWallet: {
+        balance: user.eWallet.balance,
+        transactions: user.eWallet.transactions,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch wallet details.", details: err.message });
+  }
+};
+
+exports.cashOut = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { amount } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    if (amount > user.eWallet.balance) {
+      return res.status(400).json({ error: "Insufficient balance." });
+    }
+
+    user.eWallet.balance -= amount;
+
+    // Record the transaction
+    user.eWallet.transactions.push({
+      type: "Debit",
+      amount,
+      description: "Cash out",
+    });
+
+    await user.save();
+
+    res.status(200).json({ message: "Cash out successful.", balance: user.eWallet.balance });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to process cash out.", details: err.message });
+  }
+};
+
+exports.addCreditToWallet = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { amount, description } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    user.eWallet.balance += amount;
+
+    // Record the transaction
+    user.eWallet.transactions.push({
+      type: "Credit",
+      amount,
+      description: description || "Credit added",
+    });
+
+    await user.save();
+
+    res.status(200).json({ message: "Credit added successfully.", balance: user.eWallet.balance });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to add credit.", details: err.message });
+  }
+};

@@ -49,13 +49,13 @@ const authMiddleware = async (req, res, next) => {
   if (!token) {
     return res.status(401).json({ message: "Unauthorized: No token provided" });
   }
-// 6790e9ed5e4bb2ef37a3c99c
+// 679453f0299e53e4d088f842
 // console.log(token);
   try {
     // Verify the token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log(decoded);
-    // const user = await User.findById('6790e9ed5e4bb2ef37a3c99c').select("-password");
+    // console.log(decoded);
+    // const user = await User.findById('679453f0299e53e4d088f842').select("-password");
     const user = await User.findById(decoded.id).select("-password");
     // console.log(user);
 

@@ -6,7 +6,7 @@ const userSchema = new mongoose.Schema(
     phoneNumber: { type: String, required: true, unique: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: false },
-    employmentStatus: { type: String, enum: ["Student", "PR", "LTVP" , "No Working Pass"], required: true },
+    employmentStatus: { type: String, enum: ["Student", "PR", "LTVP" ], required: true },
     profileCompleted: { type: Boolean, default: false },
     profileId: { type: mongoose.Schema.Types.ObjectId, ref: "Profile" },
     applications: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Application' }],
@@ -16,6 +16,8 @@ const userSchema = new mongoose.Schema(
     },
     role: { type: String, enum: ['ADMIN', 'USER'], default: 'USER' },
     eWallet: { type: Number, default: 0 },
+      // balance: { type: Number, default: 0 },
+      // transactions: { type: Array, default: [] },
     createdAt: { type: Date, default: Date.now },
     lastLogin: { type: Date },
   });
