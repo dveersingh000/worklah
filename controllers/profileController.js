@@ -269,63 +269,141 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-
 exports.getProfileStats = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Count total completed jobs
-    const totalCompletedJobs = await Application.countDocuments({
-      userId: new mongoose.Types.ObjectId(userId),
-      status: "Completed",
-    });
+    // Fetch the user and their profile
+    const user = await User.findById(userId).populate("profileId");
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
 
-    // Count total cancelled jobs
-    const totalCancelledJobs = await Application.countDocuments({
-      userId: new mongoose.Types.ObjectId(userId),
-      status: "Cancelled",
-    });
-
-    // Aggregate total hours worked from completed jobs
-    const totalHoursWorked = await Application.aggregate([
-      {
-        $match: {
-          userId: new mongoose.Types.ObjectId(userId),
-          status: "Completed",
-        },
+    // Unified response object
+    const response = {
+      profilePicture: user.profilePicture || "/static/image.png",
+      wallet: {
+        balance: user.eWallet || 0,
       },
-      {
-        $lookup: {
-          from: "jobs",
-          localField: "jobId",
-          foreignField: "_id",
-          as: "jobDetails",
-        },
-      },
-      { $unwind: "$jobDetails" }, // Unwind the job details
-      { $unwind: "$jobDetails.dates" }, // Unwind dates array
-      { $unwind: "$jobDetails.dates.shifts" }, // Unwind shifts array
-      {
-        $group: {
-          _id: null,
-          totalHours: { $sum: "$jobDetails.dates.shifts.duration" }, // Sum up shift durations
-        },
-      },
-    ]);
+    };
 
-    // Placeholder for no-show jobs, implement logic if needed
-    const noShowJobs = 0;
+    // Handle Incomplete Profile
+    if (!user.profileCompleted) {
+      response.stats = {
+        age: "--",
+        gender: "NIL",
+        totalHoursWorked: "-- Hrs",
+      };
+      response.message = "Complete your profile to unlock all stats.";
+    } else {
+      // Fetch Completed Jobs
+      const totalCompletedJobs = await Application.countDocuments({
+        userId: userId,
+        status: "Completed",
+      });
 
-    res.status(200).json({
-      totalCompletedJobs: totalCompletedJobs || 0,
-      totalCancelledJobs: totalCancelledJobs || 0,
-      noShowJobs,
-      totalHoursWorked: totalHoursWorked[0]?.totalHours || 0,
-    });
+      // Fetch Cancelled Jobs
+      const totalCancelledJobs = await Application.countDocuments({
+        userId: userId,
+        status: "Cancelled",
+      });
+
+      // Fetch No-Show Jobs
+      const noShowJobs = await Application.countDocuments({
+        userId: userId,
+        status: "No Show",
+      });
+
+      // Aggregate Total Hours Worked
+      const totalHoursWorked = await Application.aggregate([
+        {
+          $match: {
+            userId: new mongoose.Types.ObjectId(userId),
+            status: "Completed",
+          },
+        },
+        {
+          $lookup: {
+            from: "jobs",
+            localField: "jobId",
+            foreignField: "_id",
+            as: "jobDetails",
+          },
+        },
+        { $unwind: "$jobDetails" },
+        { $unwind: "$jobDetails.dates" },
+        { $unwind: "$jobDetails.dates.shifts" },
+        {
+          $group: {
+            _id: null,
+            totalHours: { $sum: "$jobDetails.dates.shifts.duration" },
+          },
+        },
+      ]);
+
+      // Fetch Recent Past Jobs
+      const recentPastJobs = await Application.find({ userId })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .populate({
+          path: "jobId",
+          select: "jobName subtitle subtitleIcon location employer dates",
+          populate: {
+            path: "employer",
+            select: "companyName",
+          },
+        });
+
+      // Format Recent Past Jobs
+      const formattedPastJobs = recentPastJobs.map((job) => ({
+        jobName: job.jobId?.jobName || "Unknown",
+        subtitle: job.jobId?.subtitle || "Unknown",
+        subtitleIcon: job.jobId?.subtitleIcon || "/static/image.png",
+        location: job.jobId?.location || "Unknown Location",
+        duration: `${job.jobId?.dates?.[0]?.shifts?.[0]?.duration || "N/A"} hrs`,
+        status: job.status || "N/A",
+        companyName: job.jobId?.employer?.companyName || "Unknown Employer",
+        date: job.createdAt,
+      }));
+
+      // Calculate Demerit Points (e.g., $5 per No-Show Job)
+      const demeritPoints = noShowJobs * 5;
+
+      // Add Complete Profile Data to the Response
+      Object.assign(response, {
+        accountStatus: "Verified", // Hardcoded as verified for now
+        rating: 4.8, // Example rating
+        id: user._id,
+        phoneNumber: user.phoneNumber,
+        joinDate: user.createdAt.toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+        }),
+        stats: {
+          age: user.profileId?.dob
+            ? new Date().getFullYear() - new Date(user.profileId.dob).getFullYear()
+            : "--",
+          gender: user.profileId?.gender || "NIL",
+          totalCompletedJobs: totalCompletedJobs || 0,
+          totalCancelledJobs: totalCancelledJobs || 0,
+          noShowJobs: noShowJobs || 0,
+          totalHoursWorked: totalHoursWorked[0]?.totalHours || 0,
+        },
+        demeritPoints: demeritPoints || 0,
+        recentPastJobs: formattedPastJobs,
+      });
+    }
+
+    // Send the response
+    res.status(200).json(response);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch profile stats.", details: err.message });
   }
 };
+
+
+
+
 
 
 exports.getWalletDetails = async (req, res) => {
