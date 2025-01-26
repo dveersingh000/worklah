@@ -14,6 +14,7 @@ const {
   markApplicationCompleted,
   cancelApplication,
   searchJobs,
+  getJobDetails,
   // getOngoingShifts,
   // getCompletedShifts,
   // getCanceledShifts,
@@ -34,6 +35,7 @@ router.get('/ongoing', authMiddleware, getOngoingJobs);
 router.get('/completed',authMiddleware,  getCompletedJobs);
 router.get('/cancelled', authMiddleware, getCancelledJobs);
 router.post('/markComplete', authMiddleware, markApplicationCompleted);
+router.get('/details/:applicationId', authMiddleware, getJobDetails);
 
 // Bank Management
 router.get('/banks', getLinkedBanks);

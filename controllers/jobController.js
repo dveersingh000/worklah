@@ -522,6 +522,102 @@ exports.getOngoingJobs = async (req, res) => {
   }
 };
 
+exports.getJobDetails = async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+
+    // Find the application by ID
+    const application = await Application.findById(applicationId)
+      .populate({
+        path: 'jobId',
+        select: 'jobName jobIcon location locationCoordinates subtitle subtitleIcon dates outlet requirements employer',
+        populate: [
+          { path: 'outlet', select: 'outletName location outletImage outletType' },
+          { path: 'employer', select: 'companyName companyLogo companyImage contractEndDate' },
+        ],
+      })
+      .lean(); // Convert documents to plain objects for easier manipulation
+
+    if (!application) {
+      return res.status(404).json({ success: false, error: 'Application not found' });
+    }
+
+    // Extract job details
+    const job = application.jobId;
+    let shiftDetails = null;
+
+    // Find the relevant shift
+    for (const date of job.dates) {
+      if (new Date(date.date).toISOString().split('T')[0] === new Date(application.date).toISOString().split('T')[0]) {
+        shiftDetails = date.shifts.find((shift) => shift._id.toString() === application.shiftId.toString());
+        break;
+      }
+    }
+
+    if (!shiftDetails) {
+      return res.status(404).json({ success: false, error: 'Shift not found' });
+    }
+
+    // Construct response
+    const detailedJob = {
+      applicationId: application._id,
+      jobId: job._id,
+      jobName: job.jobName,
+      jobIcon: job.jobIcon,
+      subtitle: job.subtitle,
+      subtitleIcon: job.subtitleIcon,
+      location: job.location,
+      locationCoordinates: job.locationCoordinates,
+      salary: shiftDetails.totalWage,
+      duration: `${shiftDetails.duration || 0} hrs`,
+      ratePerHour: `$${shiftDetails.payRate || 0}/hr`,
+      shiftDate: application.date,
+      shiftStartTime: shiftDetails.startTime,
+      shiftEndTime: shiftDetails.endTime,
+      breakType: shiftDetails.breakType,
+      breakDuration: `${shiftDetails.breakHours || 0} hrs`,
+      jobScope: job.requirements?.jobScopeDescription || [],
+      jobRequirements: job.requirements?.jobRequirements || [],
+      shiftsAvailable: job.dates.map((date) => ({
+        date: date.date,
+        shifts: date.shifts.map((shift) => ({
+          _id: shift._id,
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+          payRate: shift.payRate,
+          vacancy: shift.vacancy,
+          standbyVacancy: shift.standbyVacancy,
+          filledVacancies: shift.filledVacancies,
+          standbyFilled: shift.standbyFilled,
+          duration: shift.duration,
+          breakHours: shift.breakHours,
+          totalWage: shift.totalWage,
+        })),
+      })),
+      employer: {
+        _id: job.employer?._id,
+        name: job.employer?.companyName,
+        companyLogo: job.employer?.companyLogo,
+        contractEndDate: job.employer?.contractEndDate,
+      },
+      outlet: {
+        _id: job.outlet?._id,
+        name: job.outlet?.outletName,
+        location: job.outlet?.location,
+        outletImage: job.outlet?.outletImage,
+        outletType: job.outlet?.outletType,
+      },
+    };
+
+    res.status(200).json({ success: true, job: detailedJob });
+  } catch (error) {
+    console.error('Error fetching job details:', error.message);
+    res.status(500).json({ success: false, error: 'Failed to fetch job details', details: error.message });
+  }
+};
+
+
+
 exports.getCompletedJobs = async (req, res) => {
   try {
     const userId = req.user._id;
