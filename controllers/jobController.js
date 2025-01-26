@@ -469,158 +469,303 @@ exports.cancelApplication = async (req, res) => {
   }
 };
 
-// exports.getOngoingJobs = async (req, res) => {
-//   try {
-//     const userId = req.user._id;
-
-//     const applications = await Application.find({ userId, status: 'Ongoing' })
-//       .populate('jobId', 'jobName jobIcon location')
-//       .populate('shiftId');
-
-//     const ongoingJobs = applications.map((app) => ({
-//       applicationId: app._id,
-//       jobName: app.jobId.jobName,
-//       jobIcon: app.jobId.jobIcon,
-//       location: app.jobId.location,
-//       salary: app.shiftId.totalWage,
-//       duration: `${app.shiftId.duration} hrs`,
-//       jobStatus: 'Ongoing',
-//     }));
-
-//     res.status(200).json({ success: true, jobs: ongoingJobs });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ success: false, error: error.message });
-//   }
-// };
-
-// exports.getCompletedJobs = async (req, res) => {
-//   try {
-//     const userId = req.user._id;
-
-//     const applications = await Application.find({ userId, status: 'Completed' })
-//       .populate('jobId', 'jobName jobIcon location')
-//       .populate('shiftId');
-
-//     const completedJobs = applications.map((app) => ({
-//       applicationId: app._id,
-//       jobName: app.jobId.jobName,
-//       jobIcon: app.jobId.jobIcon,
-//       location: app.jobId.location,
-//       salary: app.shiftId.totalWage,
-//       duration: `${app.shiftId.duration} hrs`,
-//       jobStatus: 'Completed',
-//     }));
-
-//     res.status(200).json({ success: true, jobs: completedJobs });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ success: false, error: error.message });
-//   }
-// };
-
-// exports.getCancelledJobs = async (req, res) => {
-//   try {
-//     const userId = req.user._id;
-
-//     const applications = await Application.find({ userId, status: 'Cancelled' })
-//       .populate('jobId', 'jobName jobIcon location')
-//       .populate('shiftId');
-
-//     const cancelledJobs = applications.map((app) => ({
-//       applicationId: app._id,
-//       jobName: app.jobId.jobName,
-//       jobIcon: app.jobId.jobIcon,
-//       location: app.jobId.location,
-//       salary: app.shiftId.totalWage,
-//       duration: `${app.shiftId.duration} hrs`,
-//       jobStatus: 'Cancelled',
-//     }));
-
-//     res.status(200).json({ success: true, jobs: cancelledJobs });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ success: false, error: error.message });
-//   }
-// };
-
-exports.getOngoingShifts = async (req, res) => {
+exports.getOngoingJobs = async (req, res) => {
   try {
-    const ongoingShifts = [
-      {
-        jobName: "Waiter",
-        jobIcon: "/static/jobIcon.png",
-        subtitle: "Food Dynasty (United Square)",
-        subtitleIcon: "/static/subTitleIcon.png",
-        outletImage: "/static/Job.png",
-        location: "Food Dynasty (United Square)",
-        duration: "3 Hrs",
-        salary: "$36",
-      },
-    ];
+    const userId = req.user._id;
 
-    res.status(200).json({
-      success: true,
-      shifts: ongoingShifts,
+    // Fetch applications with job and shift details
+    const applications = await Application.find({ userId, status: 'Ongoing' })
+    .populate({
+      path: 'jobId',
+      select: 'jobName jobIcon location subtitle subtitleIcon dates outlet',
+      populate: { path: 'outlet', select: 'outletImage' }, // Populate outletImage
+    })
+      .lean(); // Convert documents to plain objects for easier manipulation
+
+    // Map through applications to construct ongoingJobs array
+    const ongoingJobs = applications.map((app) => {
+      // Find the shift from the job's dates using shiftId
+      const job = app.jobId;
+      let shiftDetails = null;
+
+      // Iterate through dates to find the matching shift
+      for (const date of job.dates) {
+        shiftDetails = date.shifts.find((shift) => shift._id.equals(app.shiftId));
+        if (shiftDetails) break;
+      }
+
+      // If no shift found, skip this application
+      if (!shiftDetails) return null;
+
+      return {
+        applicationId: app._id,
+        jobName: job.jobName,
+        jobIcon: job.jobIcon,
+        subtitle: job.subtitle,
+        subtitleIcon: job.subtitleIcon,
+        location: job.location,
+        outletImage: job.outlet?.outletImage,
+        salary: shiftDetails.totalWage,
+        duration: `${shiftDetails.duration || 0} hrs`,
+        ratePerHour: `$${shiftDetails.payRate || 0}/hr`,
+        jobStatus: 'Ongoing',
+      };
     });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+
+    // Filter out any null entries in case of unmatched shifts
+    const filteredJobs = ongoingJobs.filter((job) => job !== null);
+
+    res.status(200).json({ success: true, jobs: filteredJobs });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
-
-exports.getCompletedShifts = async (req, res) => {
+exports.getCompletedJobs = async (req, res) => {
   try {
-    const completedShifts = [
-      {
-        jobName: "Waiter",
-        jobIcon: "/static/jobIcon.png",
-        subtitle: "Food Dynasty (United Square)",
-        subtitleIcon: "/static/subTitleIcon.png",
-        outletImage: "/static/Job.png",
-        location: "Food Dynasty (United Square)",
-        duration: "3 Hrs",
-        salary: "$36",
-        payRate: "$12/hr",
-        status: "Completed",
-      },
-    ];
+    const userId = req.user._id;
 
-    res.status(200).json({
-      success: true,
-      shifts: completedShifts,
+    // Fetch applications with job and shift details
+    const applications = await Application.find({ userId, status: 'Completed' })
+    .populate({
+      path: 'jobId',
+      select: 'jobName jobIcon location subtitle subtitleIcon dates outlet',
+      populate: { path: 'outlet', select: 'outletImage' }, // Populate outletImage
+    })
+      .lean(); // Convert documents to plain objects for easier manipulation
+
+    // Map through applications to construct completedJobs array
+    const completedJobs = applications.map((app) => {
+      // Find the shift from the job's dates using shiftId
+      const job = app.jobId;
+      let shiftDetails = null;
+
+      // Iterate through dates to find the matching shift
+      for (const date of job.dates) {
+        shiftDetails = date.shifts.find((shift) => shift._id.equals(app.shiftId));
+        if (shiftDetails) break;
+      }
+
+      // If no shift found, skip this application
+      if (!shiftDetails) return null;
+
+      return {
+        applicationId: app._id,
+        jobName: job.jobName,
+        jobIcon: job.jobIcon,
+        location: job.location,
+        outletImage: job.outlet?.outletImage,
+        salary: shiftDetails.totalWage,
+        duration: `${shiftDetails.duration || 0} hrs`,
+        ratePerHour: `$${shiftDetails.payRate || 0}/hr`,
+        jobStatus: 'Completed',
+      };
     });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+
+    // Filter out any null entries in case of unmatched shifts
+    const filteredJobs = completedJobs.filter((job) => job !== null);
+
+    res.status(200).json({ success: true, jobs: filteredJobs });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
-
-exports.getCanceledShifts = async (req, res) => {
+exports.getCancelledJobs = async (req, res) => {
   try {
-    const canceledShifts = [
-      {
-        jobName: "Waiter",
-        jobIcon: "/static/jobIcon.png",
-        subtitle: "Food Dynasty (United Square)",
-        subtitleIcon: "/static/subTitleIcon.png",
-        outletImage: "/static/Job.png",
-        location: "Food Dynasty (United Square)",
-        duration: "3 Hrs",
-        salary: "$36",
-        payRate: "$12/hr",
-        status: "Cancelled",
-      },
-    ];
+    const userId = req.user._id;
+
+    // Fetch applications with job and shift details
+    const applications = await Application.find({ userId, status: 'Cancelled' })
+    .populate({
+      path: 'jobId',
+      select: 'jobName jobIcon location subtitle subtitleIcon dates outlet',
+      populate: { path: 'outlet', select: 'outletImage' }, // Populate outletImage
+    })
+      .lean(); // Convert documents to plain objects for easier manipulation
+
+    // Map through applications to construct cancelledJobs array
+    const cancelledJobs = applications.map((app) => {
+      // Find the shift from the job's dates using shiftId
+      const job = app.jobId;
+      let shiftDetails = null;
+
+      // Iterate through dates to find the matching shift
+      for (const date of job.dates) {
+        shiftDetails = date.shifts.find((shift) => shift._id.equals(app.shiftId));
+        if (shiftDetails) break;
+      }
+
+      // If no shift found, skip this application
+      if (!shiftDetails) return null;
+
+      return {
+        applicationId: app._id,
+        jobName: job.jobName,
+        jobIcon: job.jobIcon,
+        location: job.location,
+        outletImage: job.outlet?.outletImage,
+        salary: shiftDetails.totalWage,
+        duration: `${shiftDetails.duration || 0} hrs`,
+        ratePerHour: `$${shiftDetails.payRate || 0}/hr`,
+        jobStatus: 'Cancelled',
+      };
+    });
+
+    // Filter out any null entries in case of unmatched shifts
+    const filteredJobs = cancelledJobs.filter((job) => job !== null);
+
+    res.status(200).json({ success: true, jobs: filteredJobs });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+exports.markApplicationCompleted = async (req, res) => {
+  try {
+    const { applicationId } = req.body;
+
+    // Find the application by ID
+    const application = await Application.findById(applicationId);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+
+    // Ensure the application is currently ongoing
+    if (application.status !== 'Ongoing') {
+      return res.status(400).json({ error: 'Application is not in Ongoing status' });
+    }
+
+    // Update application status to Completed
+    application.status = 'Completed';
+    application.completedAt = new Date();
+    await application.save();
+
+    // Update the job and shift data if necessary
+    const job = await Job.findById(application.jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Find the relevant date and shift
+    const jobDate = job.dates.find(d => new Date(d.date).toISOString().split('T')[0] === new Date(application.date).toISOString().split('T')[0]);
+    const shift = jobDate?.shifts.find(s => s._id.toString() === application.shiftId.toString());
+
+    if (!jobDate || !shift) {
+      return res.status(404).json({ error: 'Shift not found for the specified application' });
+    }
+
+    // Adjust shift vacancies if applicable
+    if (application.isStandby && shift.standbyFilled > 0) {
+      shift.standbyFilled -= 1;
+    } else if (!application.isStandby && shift.filledVacancies > 0) {
+      shift.filledVacancies -= 1;
+    }
+
+    await job.save();
+
+    // Notify the user
+    const notification = new Notification({
+      userId: application.userId,
+      jobId: application.jobId,
+      type: 'Job',
+      title: 'Job Completed',
+      message: `Your application for job "${job.jobName}" has been marked as Completed.`,
+      isRead: false,
+    });
+    await notification.save();
 
     res.status(200).json({
       success: true,
-      shifts: canceledShifts,
+      message: 'Application marked as Completed successfully',
+      application,
     });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (error) {
+    console.error('Error in markApplicationCompleted:', error.message);
+    res.status(500).json({ error: 'Failed to mark application as completed', details: error.message });
   }
 };
+
+// exports.getOngoingShifts = async (req, res) => {
+//   try {
+//     const ongoingShifts = [
+//       {
+//         jobName: "Waiter",
+//         jobIcon: "/static/jobIcon.png",
+//         subtitle: "Food Dynasty (United Square)",
+//         subtitleIcon: "/static/subTitleIcon.png",
+//         outletImage: "/static/Job.png",
+//         location: "Food Dynasty (United Square)",
+//         duration: "3 Hrs",
+//         salary: "$36",
+//       },
+//     ];
+
+//     res.status(200).json({
+//       success: true,
+//       shifts: ongoingShifts,
+//     });
+//   } catch (err) {
+//     res.status(500).json({ success: false, error: err.message });
+//   }
+// };
+
+
+// exports.getCompletedShifts = async (req, res) => {
+//   try {
+//     const completedShifts = [
+//       {
+//         jobName: "Waiter",
+//         jobIcon: "/static/jobIcon.png",
+//         subtitle: "Food Dynasty (United Square)",
+//         subtitleIcon: "/static/subTitleIcon.png",
+//         outletImage: "/static/Job.png",
+//         location: "Food Dynasty (United Square)",
+//         duration: "3 Hrs",
+//         salary: "$36",
+//         payRate: "$12/hr",
+//         status: "Completed",
+//       },
+//     ];
+
+//     res.status(200).json({
+//       success: true,
+//       shifts: completedShifts,
+//     });
+//   } catch (err) {
+//     res.status(500).json({ success: false, error: err.message });
+//   }
+// };
+
+
+// exports.getCanceledShifts = async (req, res) => {
+//   try {
+//     const canceledShifts = [
+//       {
+//         jobName: "Waiter",
+//         jobIcon: "/static/jobIcon.png",
+//         subtitle: "Food Dynasty (United Square)",
+//         subtitleIcon: "/static/subTitleIcon.png",
+//         outletImage: "/static/Job.png",
+//         location: "Food Dynasty (United Square)",
+//         duration: "3 Hrs",
+//         salary: "$36",
+//         payRate: "$12/hr",
+//         status: "Cancelled",
+//       },
+//     ];
+
+//     res.status(200).json({
+//       success: true,
+//       shifts: canceledShifts,
+//     });
+//   } catch (err) {
+//     res.status(500).json({ success: false, error: err.message });
+//   }
+// };
 
 exports.getLinkedBanks = async (req, res) => {
   try {
