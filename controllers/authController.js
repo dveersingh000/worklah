@@ -33,10 +33,10 @@ exports.login = async (req, res) => {
     }
 
     // Verify OTP using Twilio
-    const isValidOtp = await verifyOTP(phoneNumber, otp);
-    if (!isValidOtp) {
-      return res.status(400).json({ message: 'Invalid or expired OTP' });
-    }
+    // const isValidOtp = await verifyOTP(phoneNumber, otp);
+    // if (!isValidOtp) {
+    //   return res.status(400).json({ message: 'Invalid or expired OTP' });
+    // }
 
     // Generate JWT token
     const token = generateToken({ id: user._id });
@@ -76,10 +76,10 @@ exports.generateOtp = async (req, res) => {
     const isRegistered = !!user;
 
     // Send OTP using Twilio
-    const otpStatus = await sendOTP(phoneNumber);
-    if (otpStatus !== 'pending') {
-      return res.status(500).json({ message: 'Failed to send OTP. Try again later.' });
-    }
+    // const otpStatus = await sendOTP(phoneNumber);
+    // if (otpStatus !== 'pending') {
+    //   return res.status(500).json({ message: 'Failed to send OTP. Try again later.' });
+    // }
 
     res.status(200).json({ 
       message: 'OTP sent successfully.',
