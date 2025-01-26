@@ -578,6 +578,8 @@ exports.getJobDetails = async (req, res) => {
       breakDuration: `${shiftDetails.breakHours || 0} hrs`,
       jobScope: job.requirements?.jobScopeDescription || [],
       jobRequirements: job.requirements?.jobRequirements || [],
+      penalty: application.penalty || 0, // Include penalty
+      reason: application.reason || '', // Include reason for cancellation
       shiftsAvailable: job.dates.map((date) => ({
         date: date.date,
         shifts: date.shifts.map((shift) => ({
