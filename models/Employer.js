@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const EmployerSchema = new mongoose.Schema(
   {
     companyName: { type: String, required: true },
-    companyLogo: { type: String, default: '/static/companyLogo.svg' },
+    companyLogo: { type: String, default: '/static/companyLogo.png' },
     mainContactPerson: { type: String, required: true },
     jobPosition: { type: String },
     contactNumber: { type: String, required: true },
