@@ -44,7 +44,7 @@ dotenv.config();
 
 
 const authMiddleware = async (req, res, next) => {
-    const token = req.cookies.token || req.headers.authorization?.split(" ")[1]; 
+    const token = req.headers.authorization?.split(" ")[1]; 
   
   if (!token) {
     return res.status(401).json({ message: "Unauthorized: No token provided" });
@@ -56,7 +56,7 @@ const authMiddleware = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     // console.log(decoded);
     // const user = await User.findById('679453f0299e53e4d088f842').select("-password");
-    const user = await User.findById(decoded.id).select("-password");
+    const user = await User.findById(decoded.id || decoded._id).select("-password");
     // console.log(user);
 
     if (!user) {
