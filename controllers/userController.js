@@ -27,7 +27,8 @@ exports.registerUser = async (req, res) => {
             email,
             password: hashedPassword,
             phoneNumber,
-            employmentStatus
+            employmentStatus,
+            role
         });
         await user.save();
         res.status(201).json({ message: "User created successfully" });
