@@ -5,6 +5,7 @@ const User = require('../models/User');
 const Application = require('../models/Application');
 const Notification = require('../models/Notification');
 const mongoose = require('mongoose');
+const moment = require('moment');
 
 // Create a new job
 exports.createJob = async (req, res) => {
@@ -156,6 +157,7 @@ exports.getAllJobs = async (req, res) => {
         shifts: date.shifts.map((shift) => ({
           _id: shift._id,
           startTime: shift.startTime,
+          endTime: shift.endTime,
           duration: shift.duration,
           payRate: shift.payRate,
           totalWage: shift.totalWage,
@@ -201,105 +203,109 @@ exports.getAllJobs = async (req, res) => {
   }
 };
 // Get a specific job by ID
+
 exports.getJobById = async (req, res) => {
   try {
     const userId = req.user.id;
-    // Fetch the current user
     const user = await User.findById(userId);
 
     const applied = await Application.findOne({
       jobId: new mongoose.Types.ObjectId(req.params.id),
       userId: new mongoose.Types.ObjectId(userId),
-      appliedStatus: 'Applied',
+      appliedStatus: "Applied",
     });
 
     const job = await Job.findById(req.params.id)
-      .populate('employer', '_id  companyName contractEndDate companyLogo')
-      .populate('outlet', '_id outletName location outletImage outletType');
+      .populate("employer", "_id companyName contractEndDate companyLogo")
+      .populate("outlet", "_id outletName location outletImage outletType");
 
-    if (!job) return res.status(404).json({ message: 'Job not found' });
+    if (!job) return res.status(404).json({ message: "Job not found" });
 
+    // Calculate total salary, potential wages, and total pay rate
+    let totalPotentialWages = 0;
+    let totalPayRate = 0;
+    let totalVacancies = 0;
+
+    const shiftsAvailable = job.dates.map((date) => {
+      return {
+        date: date.date,
+        shifts: date.shifts.map((shift) => {
+          // Ensure vacancies are not negative
+          const filledVacancies = Math.max(shift.filledVacancies, 0);
+          const standbyFilled = Math.max(shift.standbyFilled, 0);
+          const vacancy = Math.max(shift.vacancy, 0);
+          const standbyVacancy = Math.max(shift.standbyVacancy, 0);
+
+          // Calculate effective hours (excluding break hours)
+          const effectiveHours = shift.duration - shift.breakHours;
+
+          // Update total wages and pay rate calculations
+          const totalWage =
+            shift.rateType === "Hourly rate"
+              ? shift.payRate * effectiveHours
+              : shift.payRate;
+
+          totalPotentialWages += totalWage;
+          totalPayRate += shift.payRate * effectiveHours;
+          totalVacancies += vacancy;
+
+          return {
+            _id: shift._id,
+            startTime: moment(shift.startTime, "HH:mm").format("hh:mm A"), // Convert to AM/PM
+            endTime: moment(shift.endTime, "HH:mm").format("hh:mm A"), // Convert to AM/PM
+            payRate: `$${shift.payRate}`, // Add '$' sign
+            vacancy,
+            standbyVacancy,
+            filledVacancies,
+            standbyFilled,
+            duration: shift.duration,
+            breakHours: shift.breakHours,
+            totalWage: `$${totalWage}`, // Add '$' sign
+          };
+        }),
+      };
+    });
+
+    // Format the response
     const formattedJob = {
       _id: job._id,
-  jobName: job.jobName,
-  subtitle: job.subtitle,
-  subtitleIcon: job.subtitleIcon,
-  jobIcon: job.jobIcon,
-  jobStatus: job.jobStatus,
-  postedDate: job.postedDate,
-  salary: job.dates.reduce((total, date) => {
-    return (
-      total +
-      date.shifts.reduce((shiftTotal, shift) => shiftTotal + shift.totalWage, 0)
-    );
-  }, 0), // Calculate total salary
+      jobName: job.jobName,
+      subtitle: job.subtitle,
+      subtitleIcon: job.subtitleIcon,
+      jobIcon: job.jobIcon,
+      jobStatus: job.jobStatus,
+      postedDate: job.postedDate,
+      salary: `$${totalPotentialWages}`, // Add '$' sign
+      totalPotentialWages: `$${totalPotentialWages}`, // Add '$' sign
+      totalPayRate: `$${totalPayRate}`, // Add '$' sign
+      totalVacancies,
+      applied: applied ? true : false,
+      profileCompleted: user?.profileCompleted || false,
+      location: job.location,
+      locationCoordinates: job.locationCoordinates,
+      requirements: job.requirements,
+      shiftsAvailable,
+      employer: {
+        _id: job.employer._id,
+        name: job.employer.companyName,
+        companyLogo: job.employer.companyLogo,
+        contractEndDate: job.employer.contractEndDate,
+      },
+      outlet: {
+        _id: job.outlet._id,
+        name: job.outlet.outletName,
+        location: job.outlet.location,
+        outletImage: job.outlet.outletImage,
+        outletType: job.outlet.outletType,
+      },
+    };
 
-  totalPotentialWages: job.dates.reduce((total, date) => {
-    return (
-      total +
-      date.shifts.reduce((shiftTotal, shift) => shiftTotal + shift.totalWage, 0)
-    );
-  }, 0),
-  
-  // Calculate total pay rate
-   totalPayRate: job.dates.reduce((total, date) => {
-    return (
-      total +
-      date.shifts.reduce((shiftTotal, shift) => {
-        const effectiveHours = shift.duration - shift.breakHours; // Deduct break hours from duration
-        return shiftTotal + shift.payRate * effectiveHours;
-      }, 0)
-    );
-  }, 0),
-
-
-  totalVacancies: job.dates.reduce((total, date) => {
-    return (
-      total +
-      date.shifts.reduce((shiftTotal, shift) => shiftTotal + shift.vacancy, 0)
-    );
-  }, 0),
-
-  applied: applied ? true : false,
-  profileCompleted: user?.profileCompleted || false, 
-  location: job.location,
-  locationCoordinates: job.locationCoordinates,
-  requirements: job.requirements,
-  shiftsAvailable: job.dates.map((date) => ({
-    date: date.date,
-    shifts: date.shifts.map((shift) => ({
-      _id: shift._id,
-      startTime: shift.startTime,
-      endTime: shift.endTime,
-      payRate: shift.payRate,
-      vacancy: shift.vacancy,
-      standbyVacancy: shift.standbyVacancy,
-      filledVacancies: shift.filledVacancies,
-      standbyFilled: shift.standbyFilled,
-      duration: shift.duration,
-      breakHours: shift.breakHours,
-      totalWage: shift.totalWage,
-    })),
-  })),
-  employer: {
-    _id: job.employer._id,
-    name: job.employer.companyName,
-    companyLogo: job.employer.companyLogo,
-    contractEndDate: job.employer.contractEndDate,
-  },
-  outlet: {
-    _id: job.outlet._id,
-    name: job.outlet.outletName,
-    location: job.outlet.location,
-    outletImage: job.outlet.outletImage,
-    ouletType: job.outlet.outletType
-  },
-};
     res.status(200).json(formattedJob);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
 
 // Update a job
 exports.updateJob = async (req, res) => {
@@ -478,9 +484,9 @@ exports.getOngoingJobs = async (req, res) => {
     .populate({
       path: 'jobId',
       select: 'jobName jobIcon location subtitle subtitleIcon dates outlet',
-      populate: { path: 'outlet', select: 'outletImage' }, // Populate outletImage
+      populate: { path: 'outlet', select: 'outletImage' }, 
     })
-      .lean(); // Convert documents to plain objects for easier manipulation
+      .lean(); 
 
     // Map through applications to construct ongoingJobs array
     const ongoingJobs = applications.map((app) => {
@@ -497,6 +503,10 @@ exports.getOngoingJobs = async (req, res) => {
       // If no shift found, skip this application
       if (!shiftDetails) return null;
 
+      const currentDate = moment().startOf('day');
+      const jobDate = moment(app.date).startOf('day');
+      const daysRemaining = jobDate.diff(currentDate, 'days');
+
       return {
         applicationId: app._id,
         jobName: job.jobName,
@@ -509,6 +519,8 @@ exports.getOngoingJobs = async (req, res) => {
         duration: `${shiftDetails.duration || 0} hrs`,
         ratePerHour: `$${shiftDetails.payRate || 0}/hr`,
         jobStatus: 'Ongoing',
+        appliedAt: app.appliedAt,
+        daysRemaining: daysRemaining >= 0 ? daysRemaining : 0, // Ensure it's not negative
       };
     });
 
@@ -660,6 +672,8 @@ exports.getCompletedJobs = async (req, res) => {
         duration: `${shiftDetails.duration || 0} hrs`,
         ratePerHour: `$${shiftDetails.payRate || 0}/hr`,
         jobStatus: 'Completed',
+        appliedAt: app.appliedAt,
+        daysRemaining: 0,
       };
     });
 
@@ -713,6 +727,8 @@ exports.getCancelledJobs = async (req, res) => {
         duration: `${shiftDetails.duration || 0} hrs`,
         ratePerHour: `$${shiftDetails.payRate || 0}/hr`,
         jobStatus: 'Cancelled',
+        appliedAt: app.appliedAt,
+        daysRemaining: "",
       };
     });
 

@@ -285,6 +285,7 @@ exports.getProfileStats = async (req, res) => {
       wallet: {
         balance: user.eWallet || 0,
       },
+      username: user.fullName || "Unknown User",
     };
 
     // Handle Incomplete Profile

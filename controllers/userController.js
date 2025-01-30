@@ -15,7 +15,7 @@ const ADMIN_PASSWORD = 'adminpassword';
 
 // Register a new user
 exports.registerUser = async (req, res) => {
-    const { fullName, email, password , phoneNumber, employmentStatus} = req.body;
+    const { fullName, email, password , phoneNumber, employmentStatus, role} = req.body;
     try {
         const ifUserExists = await User.findOne({ email });
         if (ifUserExists) {

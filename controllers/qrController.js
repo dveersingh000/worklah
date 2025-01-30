@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 
 // Validate QR Code
 
+// Validate QR Code
 exports.validateQRCode = async (req, res) => {
   try {
     const { jobId, shiftId, action } = req.body;
@@ -20,8 +21,13 @@ exports.validateQRCode = async (req, res) => {
       return res.status(404).json({ error: 'Job not found.' });
     }
 
-    // Fetch the shift from the job's shifts array
-    const shift = job.shifts.find((s) => s._id.toString() === shiftId);
+    // Find the correct shift inside the `dates` array
+    let shift;
+    for (const dateObj of job.dates) {
+      shift = dateObj.shifts.find(s => s._id.toString() === shiftId);
+      if (shift) break; // Stop looping once found
+    }
+
     if (!shift) {
       return res.status(404).json({ error: 'Shift not found.' });
     }
@@ -31,7 +37,7 @@ exports.validateQRCode = async (req, res) => {
       return res.status(400).json({ error: 'Invalid action.' });
     }
 
-    res.status(200).json({ message: 'QR code validated successfully.'});
+    res.status(200).json({ message: 'QR code validated successfully.' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to validate QR code.', details: err.message });
@@ -54,15 +60,21 @@ exports.clockInOut = async (req, res) => {
     const job = await Job.findById(jobId);
     if (!job) return res.status(404).json({ error: 'Job not found.' });
 
-    // Fetch the shift from the job's shifts array
-    const shift = job.shifts.find((s) => s._id.toString() === shiftId);
+    // Find the correct shift inside the `dates` array
+    let shift;
+    for (const dateObj of job.dates) {
+      shift = dateObj.shifts.find(s => s._id.toString() === shiftId);
+      if (shift) break; // Stop looping once found
+    }
+
     if (!shift) {
-      console.log("Shift not found for ID:", shiftId);
+      // console.log("Shift not found for ID:", shiftId);
       return res.status(404).json({ error: 'Shift not found.' });
     }
 
-    console.log("Shift Details:", shift);
+    // console.log("Shift Details:", shift);
 
+    // Check if user is within radius
     const isWithinRadius = geolib.isPointWithinRadius(
       { latitude, longitude },
       { latitude: job.locationCoordinates.latitude, longitude: job.locationCoordinates.longitude },
@@ -73,8 +85,7 @@ exports.clockInOut = async (req, res) => {
       return res.status(400).json({ error: 'User is not within the allowed location radius.' });
     }
 
-    const attendance = await Attendance.findOne({ user: userId, shift: shiftId });
-    console.log("Attendance Record:", attendance);
+    let attendance = await Attendance.findOne({ user: userId, shift: shiftId });
 
     if (action === 'check_in') {
       if (attendance?.clockIn) {
@@ -82,12 +93,14 @@ exports.clockInOut = async (req, res) => {
       }
 
       // Create a new attendance record for clock-in
-      await Attendance.create({
+      attendance = new Attendance({
         user: userId,
         job: jobId,
         shift: shiftId,
         clockIn: new Date(),
       });
+
+      await attendance.save();
 
       return res.status(200).json({ message: 'Clocked in successfully.' });
     } else if (action === 'check_out') {
@@ -111,5 +124,6 @@ exports.clockInOut = async (req, res) => {
     res.status(500).json({ error: 'Failed to clock in/out.', details: err.message });
   }
 };
+
 
 
