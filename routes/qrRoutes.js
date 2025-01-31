@@ -1,11 +1,11 @@
-const express = require('express');
+const express = require("express");
+const { generateQRCode, scanQRCode, clockOut } = require("../controllers/qrController");
+const { authMiddleware } = require("../middlewares/auth");
+
 const router = express.Router();
-const { validateQRCode, clockInOut } = require('../controllers/qrController');
-const {authMiddleware} = require('../middlewares/auth');
 
-
-
-router.post('/validate', authMiddleware, validateQRCode);
-router.post('/clock', authMiddleware, clockInOut);
+router.post("/generate", authMiddleware, generateQRCode);
+router.post("/scan", authMiddleware, scanQRCode);
+router.post("/clockout", authMiddleware, clockOut);
 
 module.exports = router;

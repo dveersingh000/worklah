@@ -24,6 +24,8 @@ const jobSchema = new mongoose.Schema({
           rateType: { type: String, enum: ["Flat rate", "Hourly rate"], required: true },
           payRate: { type: Number, required: true },
           totalWage: { type: Number },
+          qrCode: { type: String },
+          checkIns: [{ type: mongoose.Schema.Types.ObjectId, ref: "Application" }],
         },
       ],
     },

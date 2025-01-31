@@ -13,6 +13,12 @@ const applicationSchema = new mongoose.Schema({
   completedAt: { type: Date }, 
   reason: { type: String }, 
   penalty: { type: Number, default: 0 },
+  clockInTime: { type: Date }, // ✅ Clock-in timestamp
+  clockOutTime: { type: Date }, // ✅ Clock-out timestamp
+  checkInLocation: { // ✅ Store GPS location during clock-in
+    latitude: { type: Number },
+    longitude: { type: Number },
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Application', applicationSchema);
