@@ -1,12 +1,9 @@
 const QRCode = require("qrcode");
 const Job = require("../models/Job");
-const Employer = require("../models/Employer");
-const QRCodeModel = require("../models/QRCode"); // A new model to store QR codes
-const moment = require("moment");
+const QRCodeModel = require("../models/QRCode");
 const Application = require("../models/Application");
 
-
-// Admin-side QR Code Generation
+// ✅ Admin: Generate QR Code for a Job and Shift
 exports.generateQRCode = async (req, res) => {
   try {
     const { jobId, shiftId } = req.body;
@@ -57,8 +54,42 @@ exports.generateQRCode = async (req, res) => {
   }
 };
 
-//Worker Scans QR to Clock-In
+// ✅ Worker Scans QR to Get Job & Shift Details (No Clock-In Yet)
 exports.scanQRCode = async (req, res) => {
+  try {
+    const { jobId, shiftId } = req.body;
+    const userId = req.user.id; // Authenticated user
+
+    // Find the job and shift
+    const job = await Job.findById(jobId);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    const shift = job.dates.flatMap(date => date.shifts).find(s => s._id.toString() === shiftId);
+    if (!shift) return res.status(404).json({ message: "Shift not found" });
+
+    // Check if the user has applied for this shift
+    const application = await Application.findOne({ userId, jobId, shiftId });
+    if (!application) {
+      return res.status(403).json({ message: "You have not applied for this shift" });
+    }
+
+    // Return job & shift details (No Clock-In Yet)
+    res.json({
+      message: "QR scan successful",
+      jobId,
+      shiftId,
+      jobName: job.jobName,
+      shiftTime: `${shift.startTime} - ${shift.endTime}`,
+      employer: job.employer,
+    });
+  } catch (error) {
+    console.error("QR Scan Error:", error);
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
+// ✅ Worker Clicks "Clock-In" After Scanning QR
+exports.clockIn = async (req, res) => {
   try {
     const { jobId, shiftId, latitude, longitude } = req.body;
     const userId = req.user.id; // Authenticated user
@@ -85,14 +116,14 @@ exports.scanQRCode = async (req, res) => {
     application.checkInLocation = { latitude, longitude };
     await application.save();
 
-    res.json({ message: "Clock-in successful", application });
+    res.json({ message: "Clock-in successful", clockInTime: application.clockInTime });
   } catch (error) {
-    console.error("QR Scan Error:", error);
+    console.error("Clock-In Error:", error);
     res.status(500).json({ message: "Server error", error });
   }
 };
 
-//Worker Clocks Out
+// ✅ Worker Clicks "Clock-Out"
 exports.clockOut = async (req, res) => {
   try {
     const { jobId, shiftId } = req.body;
@@ -114,9 +145,9 @@ exports.clockOut = async (req, res) => {
     application.clockOutTime = new Date();
     await application.save();
 
-    res.json({ message: "Clock-out successful", application });
+    res.json({ message: "Clock-out successful", clockOutTime: application.clockOutTime });
   } catch (error) {
-    console.error("Clock-out Error:", error);
+    console.error("Clock-Out Error:", error);
     res.status(500).json({ message: "Server error", error });
   }
 };
