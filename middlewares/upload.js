@@ -1,22 +1,28 @@
-const multer = require('multer');
-const path = require('path');
+const multer = require("multer");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("../config/cloudinary");
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/'); // Path to store uploaded files
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}_${file.originalname}`); // Unique file naming
+// Cloudinary Storage for Profile Pictures (Stored in WorkLah/ProfilePictures)
+const profileStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "WorkLah/ProfilePictures",
+    allowed_formats: ["jpg", "jpeg", "png"],
+    transformation: [{ width: 500, height: 500, crop: "fill" }], // Resize profile pictures
   },
 });
 
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg'];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Invalid file type. Only JPEG, PNG, and JPG are allowed.'));
-  }
-};
+// Cloudinary Storage for General Document Uploads (NRIC, FIN, etc.)
+const generalStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "WorkLah/Documents",
+    allowed_formats: ["jpg", "jpeg", "png", "pdf"],
+  },
+});
 
-exports.uploadMiddleware = multer({ storage, fileFilter });
+// Multer Uploads
+const uploadProfile = multer({ storage: profileStorage }); // For Profile Picture Upload
+const uploadGeneral = multer({ storage: generalStorage }); // For General Documents
+
+module.exports = { uploadProfile, uploadGeneral };

@@ -28,7 +28,6 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const withdrawalRoutes = require('./routes/withdrawalRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const profileRoutes = require('./routes/profileRoutes');
-const bookingRoutes = require('./routes/bookingRoutes');
 const cancellationRoutes = require('./routes/cancellationRoutes');
 
 // Middleware
@@ -64,7 +63,6 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/withdrawals', withdrawalRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/profile', profileRoutes);
-app.use('/api/bookings', bookingRoutes);
 app.use('/api/cancellation', cancellationRoutes);
 
 // MongoDB connection

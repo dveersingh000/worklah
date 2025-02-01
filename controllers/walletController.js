@@ -1,70 +1,91 @@
-const Wallet = require('../models/Wallet');
-const Transaction = require('../models/Transaction');
-const { v4: uuidv4 } = require('uuid');
+const Wallet = require("../models/Wallet");
+const User = require("../models/User");
 
-// Get Wallet Balance
-exports.getWalletBalance = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const wallet = await Wallet.findOne({ userId });
+// Add Credit to Wallet
+exports.addCredit = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { amount, description } = req.body;
 
-    if (!wallet) {
-      return res.status(404).json({ message: 'Wallet not found.' });
+        if (amount <= 0) {
+            return res.status(400).json({ error: "Invalid amount" });
+        }
+
+        let user = await User.findById(userId).populate("eWallet"); // ✅ Ensure wallet is populated
+
+        if (!user.eWallet) {
+            // ✅ Create a new wallet if not linked
+            const newWallet = new Wallet({ userId, balance: 0, transactions: [] });
+            await newWallet.save();
+            user.eWallet = newWallet._id;
+            await user.save();
+        }
+
+        let wallet = await Wallet.findById(user.eWallet);
+
+        wallet.balance += amount;
+        wallet.transactions.push({
+            type: "Credit",
+            amount,
+            description: description || "Wallet Credit",
+        });
+
+        await wallet.save();
+
+        res.status(200).json({ message: "Amount added successfully", wallet });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to add credit", details: error.message });
     }
-
-    res.status(200).json({ balance: wallet.balance });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch wallet balance.', details: error.message });
-  }
 };
 
-// Get Transaction History
-exports.getTransactionHistory = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const transactions = await Transaction.find({ userId }).sort({ createdAt: -1 });
+// Cashout Functionality
+exports.cashOut = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { amount, cashoutMethod } = req.body;
 
-    res.status(200).json({ transactions });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch transactions.', details: error.message });
-  }
+        if (amount <= 0) {
+            return res.status(400).json({ error: "Invalid cashout amount" });
+        }
+
+        let user = await User.findById(userId).populate("eWallet");
+
+        if (!user.eWallet) {
+            return res.status(400).json({ error: "No wallet linked to user" });
+        }
+
+        let wallet = await Wallet.findById(user.eWallet);
+        if (!wallet || wallet.balance < amount) {
+            return res.status(400).json({ error: "Insufficient balance" });
+        }
+
+        wallet.balance -= amount;
+        wallet.transactions.push({
+            type: "Debit",
+            amount,
+            description: `Cashout via ${cashoutMethod || "Unknown Method"}`,
+        });
+
+        await wallet.save();
+
+        res.status(200).json({ message: "Cashout successful", wallet });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to process cashout", details: error.message });
+    }
 };
 
-// Cashout
-exports.cashout = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { amount, bankName, bankAccount } = req.body;
+// Fetch Wallet Details
+exports.getWalletDetails = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await User.findById(userId).populate("eWallet");
 
-    // Validate wallet
-    const wallet = await Wallet.findOne({ userId });
-    if (!wallet || wallet.balance < amount) {
-      return res.status(400).json({ message: 'Insufficient balance.' });
+        if (!user.eWallet) {
+            return res.status(404).json({ error: "Wallet not found" });
+        }
+
+        res.status(200).json({ wallet: user.eWallet });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to fetch wallet details", details: error.message });
     }
-
-    // Create a transaction
-    const transaction = new Transaction({
-      userId,
-      type: 'Cashout',
-      amount,
-      transactionId: uuidv4(),
-      details: {
-        bankName,
-        bankAccount,
-        cashoutFee: 0.6, // Example fixed fee
-      },
-      status: 'Pending',
-    });
-
-    // Deduct from wallet balance
-    wallet.balance -= amount;
-    await wallet.save();
-
-    // Save transaction
-    await transaction.save();
-
-    res.status(201).json({ message: 'Cashout initiated.', transaction });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to process cashout.', details: error.message });
-  }
 };

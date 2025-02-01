@@ -4,33 +4,40 @@ const Application = require("../models/Application");
 const Job = require("../models/Job");
 const mongoose = require("mongoose");
 
+
+// ✅ Upload Profile Picture
+exports.uploadProfilePicture = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image uploaded." });
+    }
+
+    const userId = req.user.id;
+    const imageUrl = req.file.path; // Cloudinary image URL
+
+    // Update User Profile Picture
+    await User.findByIdAndUpdate(userId, { profilePicture: imageUrl });
+
+    res.status(200).json({ message: "Profile picture updated successfully.", imageUrl });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to upload profile picture.", details: error.message });
+  }
+};
+
+
 // Complete profile dynamically
 exports.completeProfile = async (req, res) => {
   try {
-    const {
-      userId,
-      dob,
-      gender,
-      postalCode,
-      nricNumber,
-      finNumber,
-      studentIdNumber,
-      schoolName,
-      plocExpiryDate,
-    } = req.body;
+    const { userId, dob, gender, postalCode, nricNumber, finNumber, studentIdNumber, schoolName, plocExpiryDate } = req.body;
 
     const user = await User.findById(userId).populate("profileId");
-    if (!user) {
-      return res.status(404).json({ error: "User not found." });
-    }
+    if (!user) return res.status(404).json({ error: "User not found." });
 
-    // Fetch or create a new profile
     let profile = user.profileId;
     if (!profile) {
       profile = new Profile({ userId });
     }
 
-    // Clear all fields to avoid saving unnecessary data
     profile.nricNumber = undefined;
     profile.nricImages = undefined;
     profile.finNumber = undefined;
@@ -41,17 +48,16 @@ exports.completeProfile = async (req, res) => {
     profile.schoolName = undefined;
     profile.studentCardImage = undefined;
 
-    // Update common fields
+    // Update Common Fields
     profile.dob = dob;
     profile.gender = gender;
     profile.postalCode = postalCode;
 
-    // Update fields based on employment status
+    // ✅ Handle Cloudinary Uploads Based on Employment Status
     switch (user.employmentStatus) {
       case "PR":
-        if (!nricNumber) {
-          return res.status(400).json({ error: "NRIC Number is required for PR." });
-        }
+        if (!nricNumber) return res.status(400).json({ error: "NRIC Number is required for PR." });
+
         profile.nricNumber = nricNumber;
         profile.nricImages = {
           front: req.files?.nricFront?.[0]?.path || null,
@@ -60,11 +66,8 @@ exports.completeProfile = async (req, res) => {
         break;
 
       case "LTVP":
-        if (!finNumber || !plocExpiryDate) {
-          return res.status(400).json({
-            error: "FIN Number and PLOC Expiry Date are required for LTVP.",
-          });
-        }
+        if (!finNumber || !plocExpiryDate) return res.status(400).json({ error: "FIN Number and PLOC Expiry Date are required for LTVP." });
+
         profile.finNumber = finNumber;
         profile.finImages = {
           front: req.files?.finFront?.[0]?.path || null,
@@ -75,22 +78,15 @@ exports.completeProfile = async (req, res) => {
         break;
 
       case "Student":
-        if (!studentIdNumber || !schoolName) {
-          return res.status(400).json({
-            error: "Student ID Number and School Name are required for Students.",
-          });
-        }
+        if (!studentIdNumber || !schoolName) return res.status(400).json({ error: "Student ID Number and School Name are required for Students." });
+
         profile.studentIdNumber = studentIdNumber;
         profile.schoolName = schoolName;
-        profile.studentCardImage =
-          req.files?.studentCard?.[0]?.path || null;
+        profile.studentCardImage = req.files?.studentCard?.[0]?.path || null;
         break;
-
-      default:
-        return res.status(400).json({ error: "Invalid employment status." });
     }
 
-    // Update the selfie/profile picture if uploaded
+    // ✅ Handle Profile Picture Upload to Cloudinary
     if (req.files?.selfie?.[0]?.path) {
       user.profilePicture = req.files.selfie[0].path;
     }
@@ -98,7 +94,6 @@ exports.completeProfile = async (req, res) => {
     await profile.save();
     user.profileCompleted = true;
 
-    // Link profile to the user if not already linked
     if (!user.profileId) {
       user.profileId = profile._id;
     }
@@ -106,7 +101,7 @@ exports.completeProfile = async (req, res) => {
     await user.save();
 
     res.status(200).json({
-      message: "Profile completed successfully.",
+      message: "Profile completed successfully with Cloudinary.",
       profile,
       profilePicture: user.profilePicture,
     });
