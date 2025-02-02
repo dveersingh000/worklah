@@ -29,6 +29,9 @@ const withdrawalRoutes = require('./routes/withdrawalRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const cancellationRoutes = require('./routes/cancellationRoutes');
+const adminJobRoutes = require('./routes/adminJobRoutes');
+const adminCandidateRoutes = require("./routes/adminCandidateRoutes");
+const adminOutletRoutes = require("./routes/adminOutletRoutes");
 
 // Middleware
 app.use(cors({
@@ -64,6 +67,10 @@ app.use('/api/withdrawals', withdrawalRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/cancellation', cancellationRoutes);
+app.use('/api/admin/jobs', adminJobRoutes);
+app.use("/api/admin", adminCandidateRoutes);
+app.use("/api/admin", adminOutletRoutes);
+
 
 // MongoDB connection
 mongoose
