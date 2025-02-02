@@ -146,80 +146,91 @@ exports.getAllJobs = async (req, res) => {
 
 // ✅ Fetch a single job by ID (with employer, outlet, shifts)
 exports.getJobById = async (req, res) => {
-    try {
-      const job = await Job.findById(req.params.id)
-        .populate("employer", "companyName companyLogo")
-        .populate("outlet", "outletName location outletImage")
-        .lean();
-  
-      if (!job) return res.status(404).json({ message: "Job not found" });
-  
-      // Calculate total vacancy & standby candidates
-      let totalVacancyCandidates = 0;
-      let totalStandbyCandidates = 0;
-  
-      const shiftDetails = job.dates.map(date => ({
-        date: moment(date.date).format("DD MMM, YY"),
-        shifts: date.shifts.map(shift => {
-          totalVacancyCandidates += shift.vacancy;
-          totalStandbyCandidates += shift.standbyVacancy;
-  
-          return {
-            shiftId: shift._id,
-            startTime: shift.startTime,
-            endTime: shift.endTime,
-            vacancyFilled: `${shift.filledVacancies}/${shift.vacancy}`,
-            standbyFilled: `${shift.standbyFilled}/${shift.standbyVacancy}`,
-            totalDuration: `${shift.duration} Hrs`,
-            rateType: shift.rateType,
-            breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
-            rate: `$${shift.payRate}/hr`,
-            totalWage: `$${shift.totalWage}`,
-            jobStatus: job.jobStatus,
-          };
-        }),
-      }));
-  
-      // Static shift cancellation penalties
-      const shiftCancellationPenalties = [
-        { condition: "5 Minutes after applying", penalty: "No Penalty" },
-        { condition: "< 24 Hours", penalty: "No Penalty" },
-        { condition: "> 24 Hours", penalty: "$5 Penalty" },
-        { condition: "> 48 Hours", penalty: "$10 Penalty" },
-        { condition: "> 72 Hours", penalty: "$15 Penalty" },
-        { condition: "No Show - During Shift", penalty: "$50 Penalty" }
-      ];
-  
-      // Construct job response
-      const jobDetails = {
-        jobId: job._id,
-        jobName: job.jobName,
-        employer: {
-          name: job.employer.companyName,
-          logo: job.employer.companyLogo,
-        },
-        outlet: {
-          name: job.outlet.outletName,
-          location: job.outlet.location,
-          logo: job.outlet.outletImage,
-        },
-        postedDate: moment(job.postedDate).format("DD MMM, YY"),
-        location: job.location,
-        jobStatus: job.jobStatus,
-        totalVacancyCandidates,
-        totalStandbyCandidates,
-        shiftDetails,
-        jobScope: job.requirements.jobScopeDescription,
-        jobRequirements: job.requirements.jobRequirements,
-        shiftCancellationPenalties, // Static penalties
-      };
-  
-      res.status(200).json({ success: true, job: jobDetails });
-    } catch (error) {
-      console.error("Error in getJobById:", error);
-      res.status(500).json({ error: "Failed to fetch job details", details: error.message });
-    }
-  };
+  try {
+    const job = await Job.findById(req.params.id)
+      .populate("employer", "companyName companyLogo")
+      .populate("outlet", "outletName location outletImage")
+      .lean();
+
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    // Calculate total vacancy & standby candidates
+    let totalVacancyCandidates = 0;
+    let totalStandbyCandidates = 0;
+    let totalShifts = 0;
+    
+    // Extracting shift data outside for better integration
+    const shiftsArray = [];
+
+    job.dates.forEach(date => {
+      date.shifts.forEach(shift => {
+        totalVacancyCandidates += shift.vacancy;
+        totalStandbyCandidates += shift.standbyVacancy;
+        totalShifts += 1;
+
+        shiftsArray.push({
+          shiftId: shift._id,
+          date: new Date(date.date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' }),
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+          vacancyFilled: `${shift.filledVacancies}/${shift.vacancy}`,
+          standbyFilled: `${shift.standbyFilled}/${shift.standbyVacancy}`,
+          totalDuration: `${shift.duration} Hrs`,
+          rateType: shift.rateType,
+          breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
+          rate: `$${shift.payRate}/hr`,
+          totalWage: `$${shift.totalWage}`,
+          jobStatus: job.jobStatus,
+        });
+      });
+    });
+
+    // Shift Summary
+    const shiftSummary = {
+      totalVacancyCandidates,
+      totalStandbyCandidates,
+      totalShifts,
+    };
+
+    // Static shift cancellation penalties
+    const shiftCancellationPenalties = [
+      { condition: "5 Minutes after applying", penalty: "No Penalty" },
+      { condition: "< 24 Hours", penalty: "No Penalty" },
+      { condition: "> 24 Hours", penalty: "$5 Penalty" },
+      { condition: "> 48 Hours", penalty: "$10 Penalty" },
+      { condition: "> 72 Hours", penalty: "$15 Penalty" },
+      { condition: "No Show - During Shift", penalty: "$50 Penalty" }
+    ];
+
+    // Construct job response
+    const jobDetails = {
+      jobId: job._id,
+      jobName: job.jobName,
+      employer: {
+        name: job.employer?.companyName || "N/A",
+        logo: job.employer?.companyLogo || null,
+      },
+      outlet: {
+        name: job.outlet?.outletName || "N/A",
+        location: job.outlet?.location || "Unknown",
+        logo: job.outlet?.outletImage || null,
+      },
+      postedDate: new Date(job.postedDate).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' }),
+      location: job.location,
+      jobStatus: job.jobStatus,
+      shiftSummary, // Summary of shifts
+      shifts: shiftsArray, // ✅ Shifts are moved outside for easier access
+      jobScope: job.requirements?.jobScopeDescription || "Not provided",
+      jobRequirements: job.requirements?.jobRequirements || "Not provided",
+      shiftCancellationPenalties, // Static penalties
+    };
+
+    res.status(200).json({ success: true, job: jobDetails });
+  } catch (error) {
+    console.error("Error in getJobById:", error);
+    res.status(500).json({ error: "Failed to fetch job details", details: error.message });
+  }
+};
 
 // ✅ Create a new job with proper shift details
 exports.createJob = async (req, res) => {
