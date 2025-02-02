@@ -10,5 +10,6 @@ router.get("/:email", userController.getUserByEmail);
 router.post("/login", userController.loginUser);
 router.get('/authenticated',  userController.authenticated);
 router.patch("/:id", userController.updateUser);
+router.post("/logout", userController.logoutUser);
 
 module.exports = router;

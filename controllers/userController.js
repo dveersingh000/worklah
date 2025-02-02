@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const dotenv = require("dotenv");
 
-const { createToken, setCookie } = require("../utils/auth");
+const { createToken, setCookie, clearCookie } = require("../utils/auth");
 // const crypto = require("crypto");
 // const sendSms = require("../utils/sendSms"); 
 
@@ -121,3 +121,12 @@ exports.authenticated = async (req, res) => {
 
 
 
+//Logout
+exports.logoutUser = async (req, res) => {
+    try {
+      clearCookie(res); // Remove auth cookie
+      res.json({ message: "Logged out successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Logout failed" });
+    }
+  };

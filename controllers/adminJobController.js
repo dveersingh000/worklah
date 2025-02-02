@@ -7,130 +7,142 @@ const moment = require('moment');
 
 // ✅ Fetch all jobs with filters, sorting & pagination
 exports.getAllJobs = async (req, res) => {
-    try {
-      const { page = 1, limit = 10, jobName, employerId, outletId, status, city } = req.query;
-  
-      const filters = {};
-      if (jobName) filters.jobName = { $regex: jobName, $options: "i" };
-      if (status) filters.jobStatus = status;
-      if (employerId && mongoose.Types.ObjectId.isValid(employerId)) filters.employer = employerId;
-      if (outletId && mongoose.Types.ObjectId.isValid(outletId)) filters.outlet = outletId;
-      if (city) filters.location = { $regex: city, $options: "i" };
-  
-      // Fetch jobs with employer and outlet details
-      const jobs = await Job.find(filters)
-        .populate('employer', 'companyName companyLogo') // Employer Logo
-        .populate('outlet', 'outletName location outletImage') // Outlet Logo
-        .lean(); // Convert Mongoose documents to plain objects
-  
-      // Fetch applications to calculate filled vacancies & standby users
-      const applicationCounts = await Application.aggregate([
-        {
-          $group: {
-            _id: "$jobId",
-            totalApplications: { $sum: 1 },
-            standbyApplications: {
-              $sum: { $cond: [{ $eq: ["$isStandby", true] }, 1, 0] },
-            },
+  try {
+    const { page = 1, limit = 10, jobName, employerId, outletId, status, city } = req.query;
+
+    const filters = {};
+    if (jobName) filters.jobName = { $regex: jobName, $options: "i" };
+    if (status) filters.jobStatus = status;
+    if (employerId && mongoose.Types.ObjectId.isValid(employerId)) filters.employer = employerId;
+    if (outletId && mongoose.Types.ObjectId.isValid(outletId)) filters.outlet = outletId;
+    if (city) filters.location = { $regex: city, $options: "i" };
+
+    // Fetch jobs with employer and outlet details
+    const jobs = await Job.find(filters)
+      .populate('employer', 'companyName companyLogo') // Employer Logo
+      .populate('outlet', 'outletName location outletImage') // Outlet Logo
+      .lean(); // Convert Mongoose documents to plain objects
+
+    // Fetch applications to calculate filled vacancies & standby users
+    const applicationCounts = await Application.aggregate([
+      {
+        $group: {
+          _id: "$jobId",
+          totalApplications: { $sum: 1 },
+          standbyApplications: {
+            $sum: { $cond: [{ $eq: ["$isStandby", true] }, 1, 0] },
           },
         },
-      ]);
-  
-      const applicationCountMap = {};
-      applicationCounts.forEach(app => {
-        applicationCountMap[app._id] = {
-          totalApplications: app.totalApplications || 0,
-          standbyApplications: app.standbyApplications || 0,
-        };
+      },
+    ]);
+
+    const applicationCountMap = {};
+    applicationCounts.forEach(app => {
+      applicationCountMap[app._id] = {
+        totalApplications: app.totalApplications || 0,
+        standbyApplications: app.standbyApplications || 0,
+      };
+    });
+
+    // Format jobs response with additional details
+    const formattedJobs = jobs.map(job => {
+      let totalVacancy = 0;
+      let totalStandby = 0;
+      let totalShifts = 0;
+
+      // Process shift data and move shift details outside of shiftDetails array
+      const shiftsArray = [];
+      const shiftSummary = {
+        totalVacancy: 0,
+        totalStandby: 0,
+        totalShifts: 0,
+      };
+
+      job.dates.forEach(dateObj => {
+        dateObj.shifts.forEach(shift => {
+          totalShifts += 1;
+          totalVacancy += shift.vacancy;
+          totalStandby += shift.standbyVacancy;
+
+          shiftsArray.push({
+            shiftId: shift._id,
+            startTime: shift.startTime,
+            endTime: shift.endTime,
+            breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
+            vacancy: shift.vacancy,
+            duration: shift.duration,
+            standbyVacancy: shift.standbyVacancy,
+            payRate: `$${shift.payRate}`,
+            totalWage: `$${shift.totalWage}`,
+          });
+        });
       });
-  
-      // Format jobs response with additional details
-      const formattedJobs = jobs.map(job => {
-        let totalVacancy = 0;
-        let totalStandby = 0;
-        let totalShifts = 0;
-  
-        // Process shift data
-        const shiftDetails = job.dates.map(dateObj => ({
-          date: moment(dateObj.date).format("DD MMM, YY"), // Format date
-          shifts: dateObj.shifts.map(shift => {
-            totalShifts += 1;
-            totalVacancy += shift.vacancy;
-            totalStandby += shift.standbyVacancy;
-  
-            return {
-              shiftId: shift._id,
-              startTime: shift.startTime,
-              endTime: shift.endTime,
-              breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
-              vacancy: shift.vacancy,
-              duration: shift.duration,
-              standbyVacancy: shift.standbyVacancy,
-              payRate: `$${shift.payRate}`,
-              totalWage: `$${shift.totalWage}`,
-            };
-          }),
-        }));
-  
-        const applicationStats = applicationCountMap[job._id] || {
-          totalApplications: 0,
-          standbyApplications: 0,
-        };
-  
-        return {
-          _id: job._id,
-          jobName: job.jobName,
-          employer: {
-            name: job.employer.companyName,
-            logo: job.employer.companyLogo,
-          },
-          outlet: {
-            name: job.outlet.outletName,
-            location: job.outlet.location,
-            logo: job.outlet.outletImage,
-          },
-          numberOfShifts: totalShifts,
-          vacancyUsers: `${applicationStats.totalApplications}/${totalVacancy}`,
-          standbyUsers: `${applicationStats.standbyApplications}/${totalStandby}`,
-          totalWage: `$${job.dates.reduce(
-            (acc, date) => acc + date.shifts.reduce((sum, shift) => sum + shift.totalWage, 0),
-            0
-          )}`,
-          jobStatus: job.jobStatus,
-          postedDate: moment(job.postedDate).format("DD MMM, YY"),
-          shiftDetails, // ✅ Include shift data
-        };
-      });
-  
-      // Fetch **Dashboard Metrics**
-      const totalActiveJobs = await Job.countDocuments({ jobStatus: 'Active' });
-      const totalUpcomingJobs = await Job.countDocuments({ jobStatus: 'Upcoming' });
-      const totalCancelledJobs = await Job.countDocuments({ jobStatus: 'Cancelled' });
-  
-      // Calculate **Average Attendance Rate**
-      const attendanceData = await Application.aggregate([
-        { $match: { status: "Completed" } },
-        { $group: { _id: null, count: { $sum: 1 } } },
-      ]);
-      const totalCompletedJobs = attendanceData[0]?.count || 0;
-      const totalApplications = await Application.countDocuments();
-      const attendanceRate = totalApplications > 0 ? ((totalCompletedJobs / totalApplications) * 100).toFixed(2) : 0;
-  
-      res.status(200).json({
-        success: true,
-        totalJobs: formattedJobs.length,
-        totalActiveJobs,
-        totalUpcomingJobs,
-        totalCancelledJobs,
-        averageAttendanceRate: `${attendanceRate}%`,
-        page: Number(page),
-        jobs: formattedJobs,
-      });
-    } catch (error) {
-      console.error("Error in getAllJobs:", error);
-      res.status(500).json({ error: "Failed to fetch jobs", details: error.message });
-    }
+
+      shiftSummary.totalVacancy = totalVacancy;
+      shiftSummary.totalStandby = totalStandby;
+      shiftSummary.totalShifts = totalShifts;
+
+      const applicationStats = applicationCountMap[job._id] || {
+        totalApplications: 0,
+        standbyApplications: 0,
+      };
+
+      return {
+        _id: job._id,
+        jobName: job.jobName,
+        employer: {
+          name: job.employer.companyName,
+          logo: job.employer.companyLogo,
+        },
+        outlet: {
+          name: job.outlet.outletName,
+          location: job.outlet.location,
+          logo: job.outlet.outletImage,
+        },
+        numberOfShifts: shiftSummary.totalShifts,
+        vacancyUsers: `${applicationStats.totalApplications}/${shiftSummary.totalVacancy}`,
+        standbyUsers: `${applicationStats.standbyApplications}/${shiftSummary.totalStandby}`,
+        totalWage: `$${job.dates.reduce(
+          (acc, date) => acc + date.shifts.reduce((sum, shift) => sum + shift.totalWage, 0),
+          0
+        )}`,
+        jobStatus: job.jobStatus,
+        postedDate: moment(job.postedDate).format("DD MMM, YY"),
+        shiftSummary, // Shift summary data
+        shifts: shiftsArray, // All individual shift details
+      };
+    });
+
+    // Fetch Dashboard Metrics
+    const totalActiveJobs = await Job.countDocuments({ jobStatus: 'Active' });
+    const totalUpcomingJobs = await Job.countDocuments({ jobStatus: 'Upcoming' });
+    const totalCancelledJobs = await Job.countDocuments({ jobStatus: 'Cancelled' });
+
+    // Calculate Average Attendance Rate
+    const attendanceData = await Application.aggregate([
+      { $match: { status: "Completed" } },
+      { $group: { _id: null, count: { $sum: 1 } } },
+    ]);
+    const totalCompletedJobs = attendanceData[0]?.count || 0;
+    const totalApplications = await Application.countDocuments();
+    const attendanceRate = totalApplications > 0 ? ((totalCompletedJobs / totalApplications) * 100).toFixed(2) : 0;
+
+    res.status(200).json({
+      success: true,
+      totalJobs: formattedJobs.length,
+      totalActiveJobs,
+      totalUpcomingJobs,
+      totalCancelledJobs,
+      averageAttendanceRate: `${attendanceRate}%`,
+      page: Number(page),
+      jobs: formattedJobs,
+    });
+  } catch (error) {
+    console.error("Error in getAllJobs:", error);
+    res.status(500).json({ error: "Failed to fetch jobs", details: error.message });
   }
+};
+
 
 // ✅ Fetch a single job by ID (with employer, outlet, shifts)
 exports.getJobById = async (req, res) => {

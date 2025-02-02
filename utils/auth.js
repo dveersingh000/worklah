@@ -12,4 +12,12 @@ const setCookie = (res, token) => {
   });
 };
 
-module.exports = {createToken, setCookie};
+const clearCookie = (res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    // secure: process.env.NODE_ENV === "production",
+    sameSite: "Strict",
+  });
+};
+
+module.exports = {createToken, setCookie, clearCookie};
