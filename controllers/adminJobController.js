@@ -179,6 +179,7 @@ exports.getJobById = async (req, res) => {
           totalDuration: `${shift.duration} Hrs`,
           rateType: shift.rateType,
           breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
+          breakType: shift.breakType,
           rate: `$${shift.payRate}/hr`,
           totalWage: `$${shift.totalWage}`,
           jobStatus: job.jobStatus,
