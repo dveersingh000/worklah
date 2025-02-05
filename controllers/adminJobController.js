@@ -69,6 +69,7 @@ exports.getAllJobs = async (req, res) => {
             startTime: shift.startTime,
             endTime: shift.endTime,
             breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
+            breakType: shift.breakType, 
             vacancy: shift.vacancy,
             duration: shift.duration,
             standbyVacancy: shift.standbyVacancy,
