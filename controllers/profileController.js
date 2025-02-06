@@ -119,11 +119,12 @@ exports.getProfile = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Fetch the user and populate their profile
-    const user = await User.findById(userId).populate("profileId");
+    // Fetch the user and populate their profile and wallet
+    const user = await User.findById(userId).populate("profileId").populate("eWallet");
     if (!user) return res.status(404).json({ error: "User not found." });
 
     const profile = user.profileId;
+    const wallet = user.eWallet;
 
     // If the profile is incomplete, return basic user details
     if (!user.profileCompleted) {
@@ -133,15 +134,12 @@ exports.getProfile = async (req, res) => {
         phoneNumber: user.phoneNumber || null,
         email: user.email || null,
         profilePicture: user.profilePicture || "/static/image.png",
+        wallet: {
+          id: wallet ? wallet._id : null,
+          balance: wallet ? wallet.balance : 0,
+        },
       });
     }
-
-    // Fetch wallet details
-    // const walletDetails = {
-    //   balance: user.eWallet.balance,
-    //   // transactions: user.eWallet.transactions.slice(-5), // Recent 5 transactions
-    // };
-    const walletDetails = user.eWallet;
 
     // Fetch statistics dynamically
     const totalCompletedJobs = await Application.countDocuments({
@@ -170,8 +168,8 @@ exports.getProfile = async (req, res) => {
         },
       },
       { $unwind: "$jobDetails" },
-      { $unwind: "$jobDetails.dates" }, // Flatten dates array
-      { $unwind: "$jobDetails.dates.shifts" }, // Flatten shifts array
+      { $unwind: "$jobDetails.dates" },
+      { $unwind: "$jobDetails.dates.shifts" },
       {
         $group: {
           _id: null,
@@ -183,7 +181,11 @@ exports.getProfile = async (req, res) => {
     res.status(200).json({
       profile,
       profilePicture: user.profilePicture || "/static/image.png",
-      wallet: walletDetails,
+      wallet: {
+        id: wallet ? wallet._id : null,
+        balance: wallet ? wallet.balance : 0,
+        transactions: wallet ? wallet.transactions.slice(-5) : [],
+      },
       stats: {
         totalCompletedJobs: totalCompletedJobs || 0,
         totalCancelledJobs: totalCancelledJobs || 0,
@@ -198,6 +200,7 @@ exports.getProfile = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch profile.", details: err.message });
   }
 };
+
 
 exports.updateProfile = async (req, res) => {
   try {
@@ -269,7 +272,7 @@ exports.getProfileStats = async (req, res) => {
     const userId = req.user.id;
 
     // Fetch the user and their profile
-    const user = await User.findById(userId).populate("profileId");
+    const user = await User.findById(userId).populate("profileId").populate("eWallet");
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
@@ -278,7 +281,8 @@ exports.getProfileStats = async (req, res) => {
     const response = {
       profilePicture: user.profilePicture || "/static/image.png",
       wallet: {
-        balance: user.eWallet || 0,
+        id: user.eWallet ? user.eWallet._id : null,
+        balance: user.eWallet ? user.eWallet.balance : 0,
       },
       username: user.fullName || "Unknown User",
     };

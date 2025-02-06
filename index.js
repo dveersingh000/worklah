@@ -34,11 +34,20 @@ const adminCandidateRoutes = require("./routes/adminCandidateRoutes");
 const adminOutletRoutes = require("./routes/adminOutletRoutes");
 
 // Middleware
-app.use(cors({
-  origin: 'http://localhost:5173',  
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  credentials: true,  // Allow cookies with requests
-}));
+// app.use(cors({
+//   origin: 'http://localhost:5173',  
+//   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+//   credentials: true,  // Allow cookies with requests
+// }));
+
+app.use(
+  cors({
+    origin: "*", // Allows requests from any origin (not recommended for production)
+    methods: "GET,POST,PUT,DELETE,OPTIONS",
+    allowedHeaders: "Content-Type, Authorization",
+  })
+);
+
 app.use(express.json());
 app.use(cookieParser());
 app.use(bodyParser.json());
