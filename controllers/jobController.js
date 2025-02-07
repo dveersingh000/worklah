@@ -97,11 +97,10 @@ exports.searchJobs = async (req, res) => {
 exports.getAllJobs = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
-    
 
     // Fetch job data with selected fields
     const jobs = await Job.find({})
-      .populate('employer', '_id  companyName contractEndDate companyLogo')
+      .populate('employer', '_id companyName contractEndDate companyLogo')
       .populate('outlet', '_id outletName location outletImage outletType')
       .skip((page - 1) * limit)
       .limit(Number(limit));
@@ -110,22 +109,27 @@ exports.getAllJobs = async (req, res) => {
     const applicationCounts = await Application.aggregate([
       {
         $group: {
-          _id: '$jobId', // Group by jobId
-          applicationCount: { $sum: 1 }, // Count applications for each job
+          _id: '$jobId',
+          applicationCount: { $sum: 1 },
         },
       },
     ]);
 
-    // Create a map of application counts for easy lookup
+    // Map application counts
     const applicationCountMap = {};
     applicationCounts.forEach((item) => {
       applicationCountMap[item._id] = item.applicationCount;
     });
 
-    // Format jobs with popularity
+    // Helper function to extract short address before first comma
+    const getShortAddress = (address) => {
+      return address ? address.split(',')[0].trim() : '';
+    };
+
+    // Format jobs for UI
     const formattedJobs = jobs.map((job) => {
-      const applicationCount = applicationCountMap[job._id] || 0; // Default to 0 if no applications
-      const popularity = Math.min(applicationCount * 10, 100); // Scale popularity (max 100%)
+      const applicationCount = applicationCountMap[job._id] || 0;
+      const popularity = Math.min(applicationCount * 10, 100); // Max 100%
 
       const totalPotentialWages = job.dates.reduce((total, date) => {
         return (
@@ -135,15 +139,15 @@ exports.getAllJobs = async (req, res) => {
       }, 0);
 
       // Calculate total pay rate
-   const totalPayRate = job.dates.reduce((total, date) => {
-    return (
-      total +
-      date.shifts.reduce((shiftTotal, shift) => {
-        const effectiveHours = shift.duration - shift.breakHours; // Deduct break hours from duration
-        return shiftTotal + shift.payRate * effectiveHours;
-      }, 0)
-    );
-  }, 0);
+      const totalPayRate = job.dates.reduce((total, date) => {
+        return (
+          total +
+          date.shifts.reduce((shiftTotal, shift) => {
+            const effectiveHours = shift.duration - shift.breakHours;
+            return shiftTotal + shift.payRate * effectiveHours;
+          }, 0)
+        );
+      }, 0);
 
       const totalVacancies = job.dates.reduce((total, date) => {
         return (
@@ -152,49 +156,49 @@ exports.getAllJobs = async (req, res) => {
         );
       }, 0);
 
-      const datesWithShifts = job.dates.map((date) => ({
-        date: date.date,
-        shifts: date.shifts.map((shift) => ({
-          _id: shift._id,
-          startTime: shift.startTime,
-          endTime: shift.endTime,
-          duration: shift.duration,
-          payRate: shift.payRate,
-          totalWage: shift.totalWage,
-          breakHours: shift.breakHours,
-          vacancy: shift.vacancy,
-          standbyVacancy: shift.standbyVacancy,
-          filledVacancies: shift.filledVacancies,
-          duration: shift.duration,
+      // Extract first shift's break info (assuming all shifts have the same break rules)
+      const firstShift = job.dates.length > 0 && job.dates[0].shifts.length > 0 ? job.dates[0].shifts[0] : null;
+      const breakHours = firstShift ? firstShift.breakHours : 0;
+      const breakType = firstShift ? firstShift.breakType : "Unpaid";
 
-        })),
-      }));
+      // Extract only the start times of shifts
+      const shiftsAvailable = job.dates.flatMap((date) =>
+        date.shifts.map((shift) => shift.startTime)
+      );
 
       return {
         _id: job._id,
         jobName: job.jobName,
         subtitle: job.subtitle,
+        location: getShortAddress(job.location),
+        jobStatus: job.jobStatus,
+        totalPotentialWages: `${totalPotentialWages}`,
+        payRate: `$${totalPayRate}/Hr`,
         subtitleIcon: job.subtitleIcon,
         jobIcon: job.jobIcon,
-        location: job.location,
-        jobStatus: job.jobStatus,
-        totalPotentialWages,
-        totalVacancies,
-        totalPayRate,
         popularity: `${popularity}%`,
         postedDate: job.postedDate,
-        employer: job.employer,
-        outlet: job.outlet,
-        dates: datesWithShifts,
-        
+        employer: {
+          companyName: job.employer.companyName,
+          companyLogo: job.employer.companyLogo,
+        },
+        outlet: {
+          outletName: job.outlet.outletName,
+          outletImage: job.outlet.outletImage,
+          location: getShortAddress(job.outlet.location),
+          outletType: job.outlet.outletType,
+        },
+        shiftsAvailable, // Only includes shift start times
+        breakHours, // Directly added break hours
+        breakType, // Directly added break type
+        showFewShiftsLeft: totalVacancies <= 5,
+        showDates: job.dates.map((date) => date.date),
       };
     });
 
-    const totalJobs = await Job.countDocuments();
-
     res.status(200).json({
       success: true,
-      totalJobs,
+      totalJobs: await Job.countDocuments(),
       page: Number(page),
       jobs: formattedJobs,
     });
@@ -202,6 +206,8 @@ exports.getAllJobs = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+
 // Get a specific job by ID
 
 exports.getJobById = async (req, res) => {
