@@ -3,6 +3,7 @@ const { authMiddleware } = require("../middlewares/auth"); // Ensure authenticat
 const {
   generateQRCode,
   scanQRCode,
+  getShifts,
   clockIn,
   clockOut
 } = require("../controllers/qrController");
@@ -14,6 +15,9 @@ router.post("/generate", authMiddleware, generateQRCode);
 
 // ✅ Scan QR Code (Fetch job & shift details)
 router.post("/scan", authMiddleware, scanQRCode);
+
+// ✅ Get Shifts (Admin-side)
+router.get("/shifts", authMiddleware, getShifts);
 
 // ✅ Manually Clock-In (After scanning QR)
 router.post("/clock-in", authMiddleware, clockIn);

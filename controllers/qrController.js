@@ -28,8 +28,8 @@ exports.generateQRCode = async (req, res) => {
     const qrData = {
       jobId,
       shiftId,
-      startTime: shift.startTime,
-      endTime: shift.endTime,
+      jobName: job.jobName,
+      shiftTime: `${shift.startTime} - ${shift.endTime}`,
       timestamp: new Date().toISOString(),
     };
 
@@ -47,7 +47,7 @@ exports.generateQRCode = async (req, res) => {
 
     await newQRCode.save();
 
-    res.status(201).json({ message: "QR Code generated successfully", qrCode: qrCodeURL });
+    res.status(201).json({ message: "QR Code generated successfully", qrCode: qrCodeURL, qrData });
   } catch (error) {
     console.error("QR Generation Error:", error);
     res.status(500).json({ message: "Server error", error });
@@ -57,30 +57,33 @@ exports.generateQRCode = async (req, res) => {
 // ✅ Worker Scans QR to Get Job & Shift Details (No Clock-In Yet)
 exports.scanQRCode = async (req, res) => {
   try {
-    const { jobId, shiftId } = req.body;
-    const userId = req.user.id; // Authenticated user
+    const { qrData } = req.body; // Scanned QR code data
+    const parsedData = JSON.parse(qrData);
+    const { jobId, shiftId } = parsedData;
 
-    // Find the job and shift
-    const job = await Job.findById(jobId);
-    if (!job) return res.status(404).json({ message: "Job not found" });
+    const job = await Job.findById(jobId)
+      .populate("employer", "companyName")
+      .populate("outlet", "outletName location outletImage");
 
-    const shift = job.dates.flatMap(date => date.shifts).find(s => s._id.toString() === shiftId);
-    if (!shift) return res.status(404).json({ message: "Shift not found" });
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
 
     // Check if the user has applied for this shift
-    const application = await Application.findOne({ userId, jobId, shiftId });
-    if (!application) {
-      return res.status(403).json({ message: "You have not applied for this shift" });
-    }
+    // const application = await Application.findOne({ userId, jobId, shiftId });
+    // if (!application) {
+    //   return res.status(403).json({ message: "You have not applied for this shift" });
+    // }
 
     // Return job & shift details (No Clock-In Yet)
     res.json({
-      message: "QR scan successful",
-      jobId,
-      shiftId,
-      jobName: job.jobName,
-      shiftTime: `${shift.startTime} - ${shift.endTime}`,
-      employer: job.employer,
+      success: true,
+      jobs: [{
+        jobId: job._id,
+        jobName: job.jobName,
+        employer: job.employer.companyName,
+        location: job.outlet.location,
+      }]
     });
   } catch (error) {
     console.error("QR Scan Error:", error);
@@ -88,27 +91,46 @@ exports.scanQRCode = async (req, res) => {
   }
 };
 
+// Get Available Shifts
+exports.getShifts = async (req, res) => {
+  try {
+    const { jobId } = req.body;
+
+    const job = await Job.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
+
+    const availableShifts = job.dates.flatMap(date =>
+      date.shifts.map(shift => ({
+        shiftId: shift._id,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+      }))
+    );
+
+    res.json({ success: true, shifts: availableShifts });
+  } catch (error) {
+    console.error("Get Shifts Error:", error);
+    res.status(500).json({ success: false, message: "Server error", error });
+  }
+};
+
+
 // ✅ Worker Clicks "Clock-In" After Scanning QR
 exports.clockIn = async (req, res) => {
   try {
     const { jobId, shiftId, latitude, longitude } = req.body;
     const userId = req.user.id; // Authenticated user
 
-    // Find the job and shift
-    const job = await Job.findById(jobId);
-    if (!job) return res.status(404).json({ message: "Job not found" });
-
-    const shift = job.dates.flatMap(date => date.shifts).find(s => s._id.toString() === shiftId);
-    if (!shift) return res.status(404).json({ message: "Shift not found" });
-
     // Validate if the user has applied for this shift
     const application = await Application.findOne({ userId, jobId, shiftId });
     if (!application) {
-      return res.status(403).json({ message: "You have not applied for this shift" });
+      return res.status(403).json({ success: false, message: "Not applied for this shift" });
     }
 
     if (application.clockInTime) {
-      return res.status(400).json({ message: "You have already clocked in" });
+      return res.status(400).json({ success: false, message: "Already clocked in" });
     }
 
     // Mark Clock-in
