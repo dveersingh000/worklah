@@ -9,27 +9,39 @@ exports.generateQRCode = async (req, res) => {
     const { jobId, shiftId } = req.body;
 
     // Validate job
-    const job = await Job.findById(jobId);
+    const job = await Job.findById(jobId)
+      .populate("employer", "companyName")
+      .populate("outlet", "outletName location outletImage");
+
     if (!job) return res.status(404).json({ message: "Job not found" });
 
     // Find the shift
-    let shift = null;
-    job.dates.forEach(d => {
-      d.shifts.forEach(s => {
-        if (s._id.toString() === shiftId) {
-          shift = s;
+    let selectedShift = null;
+    let jobDate = null;
+    job.dates.forEach(date => {
+      date.shifts.forEach(shift => {
+        if (shift._id.toString() === shiftId) {
+          selectedShift = shift;
+          jobDate = date.date; // Extracting job date
         }
       });
     });
 
-    if (!shift) return res.status(404).json({ message: "Shift not found" });
+    if (!selectedShift) return res.status(404).json({ message: "Shift not found" });
 
     // Prepare QR Code data
     const qrData = {
       jobId,
       shiftId,
       jobName: job.jobName,
-      shiftTime: `${shift.startTime} - ${shift.endTime}`,
+      jobDate,
+      employer: job.employer.companyName,
+      outlet: {
+        name: job.outlet.outletName,
+        location: job.outlet.location,
+        image: job.outlet.outletImage
+      },
+      shiftTime: `${selectedShift.startTime} - ${selectedShift.endTime}`,
       timestamp: new Date().toISOString(),
     };
 
@@ -41,8 +53,8 @@ exports.generateQRCode = async (req, res) => {
       jobId,
       shiftId,
       qrCode: qrCodeURL,
-      validFrom: shift.startTime,
-      validUntil: shift.endTime,
+      validFrom: selectedShift.startTime,
+      validUntil: selectedShift.endTime,
     });
 
     await newQRCode.save();
@@ -65,56 +77,76 @@ exports.scanQRCode = async (req, res) => {
       .populate("employer", "companyName")
       .populate("outlet", "outletName location outletImage");
 
-    if (!job) {
-      return res.status(404).json({ success: false, message: "Job not found" });
-    }
+    if (!job) return res.status(404).json({ success: false, message: "Job not found" });
 
-    // Check if the user has applied for this shift
-    // const application = await Application.findOne({ userId, jobId, shiftId });
-    // if (!application) {
-    //   return res.status(403).json({ message: "You have not applied for this shift" });
-    // }
+    // Find the shift
+    let selectedShift = null;
+    let jobDate = null;
+    job.dates.forEach(date => {
+      date.shifts.forEach(shift => {
+        if (shift._id.toString() === shiftId) {
+          selectedShift = shift;
+          jobDate = date.date;
+        }
+      });
+    });
 
-    // Return job & shift details (No Clock-In Yet)
+    if (!selectedShift) return res.status(404).json({ message: "Shift not found" });
+
     res.json({
       success: true,
-      jobs: [{
+      jobDetails: {
         jobId: job._id,
         jobName: job.jobName,
+        jobDate,
         employer: job.employer.companyName,
-        location: job.outlet.location,
-      }]
+        outlet: {
+          name: job.outlet.outletName,
+          location: job.outlet.location,
+          image: job.outlet.outletImage
+        },
+        shiftTime: `${selectedShift.startTime} - ${selectedShift.endTime}`,
+      }
     });
   } catch (error) {
     console.error("QR Scan Error:", error);
-    res.status(500).json({ message: "Server error", error });
+    res.status(500).json({ success: false, message: "Server error", error });
   }
 };
 
 // Get Available Shifts
 exports.getShifts = async (req, res) => {
   try {
-    const { jobId } = req.body;
+    const { jobId } = req.query;
 
+    // Validate job existence
     const job = await Job.findById(jobId);
     if (!job) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
 
-    const availableShifts = job.dates.flatMap(date =>
-      date.shifts.map(shift => ({
-        shiftId: shift._id,
-        startTime: shift.startTime,
-        endTime: shift.endTime,
-      }))
-    );
+    // Extract shifts
+    let availableShifts = [];
+    job.dates.forEach(date => {
+      date.shifts.forEach(shift => {
+        availableShifts.push({
+          shiftId: shift._id,
+          date: date.date,
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+          breakDuration: shift.breakDuration,
+          isBooked: shift.isBooked, // Assuming a boolean field
+        });
+      });
+    });
 
     res.json({ success: true, shifts: availableShifts });
   } catch (error) {
-    console.error("Get Shifts Error:", error);
+    console.error("Fetch Shifts Error:", error);
     res.status(500).json({ success: false, message: "Server error", error });
   }
 };
+
 
 
 // ✅ Worker Clicks "Clock-In" After Scanning QR
