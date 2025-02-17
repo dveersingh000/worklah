@@ -32,21 +32,26 @@ const cancellationRoutes = require('./routes/cancellationRoutes');
 const adminJobRoutes = require('./routes/adminJobRoutes');
 const adminCandidateRoutes = require("./routes/adminCandidateRoutes");
 const adminOutletRoutes = require("./routes/adminOutletRoutes");
+const hustleHeroesRoutes = require("./routes/hustleHeroesRoutes");
 
 // Middleware
-// app.use(cors({
-//   origin: 'http://localhost:5173',  
-//   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-//   credentials: true,  // Allow cookies with requests
-// }));
+// CORS for frontend
+const frontendCors = cors({
+  origin: "http://localhost:5173",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  credentials: true,
+});
 
-app.use(
-  cors({
-    origin: "*", // Allows requests from any origin (not recommended for production)
-    methods: "GET,POST,PUT,DELETE,OPTIONS",
-    allowedHeaders: "Content-Type, Authorization",
-  })
-);
+// CORS for public API
+const publicCors = cors({
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+});
+
+// Apply different CORS policies to different routes
+app.use("/api/private", frontendCors);  // Restricted CORS for private routes
+app.use("/api/public", publicCors);
 
 app.use(express.json());
 app.use(cookieParser());
@@ -79,6 +84,7 @@ app.use('/api/cancellation', cancellationRoutes);
 app.use('/api/admin/jobs', adminJobRoutes);
 app.use("/api/admin", adminCandidateRoutes);
 app.use("/api/admin", adminOutletRoutes);
+app.use("/api/hustleheroes", hustleHeroesRoutes);
 
 
 // MongoDB connection
