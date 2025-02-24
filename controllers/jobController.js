@@ -1,86 +1,113 @@
 const Job = require('../models/Job');
 const Employer = require('../models/Employer');
 const Outlet = require('../models/Outlet');
+const Shift = require("../models/Shift");
 const User = require('../models/User');
 const Application = require('../models/Application');
 const Notification = require('../models/Notification');
 const mongoose = require('mongoose');
 const moment = require('moment');
 
-// Create a new job
+// Create a new job with shifts
 exports.createJob = async (req, res) => {
   try {
-    const { jobName, subtitle, subtitleIcon, jobIcon, employerId, outletId, dates, location, locationCoordinates, requirements, jobStatus, postedDate } = req.body;
-
-    // Validate employer and outlet
-    const employer = await Employer.findById(employerId);
-    if (!employer) return res.status(404).json({ message: 'Employer not found' });
-
-    const outlet = await Outlet.findById(outletId);
-    if (!outlet) return res.status(404).json({ message: 'Outlet not found' });
-
-    // Process dates and shifts
-    const processedDates = dates.map((dateObj) => {
-      const processedShifts = dateObj.shifts.map((shift) => {
-        const duration =
-          (new Date(`1970-01-01T${shift.endTime}Z`) - new Date(`1970-01-01T${shift.startTime}Z`)) /
-            3600000 -
-          shift.breakHours;
-        const totalWage =
-          shift.rateType === "Hourly rate" ? shift.payRate * duration : shift.payRate;
-
-        return { ...shift, duration, totalWage };
-      });
-
-      return { date: dateObj.date, shifts: processedShifts };
-    });
-
-    const job = new Job({
+    const {
       jobName,
-      subtitle,
-      subtitleIcon,
-      jobIcon,
-      employer: employerId,
-      outlet: outletId,
-      dates: processedDates,
+      company,
+      outlet,
+      date,
       location,
-      requirements,
-      locationCoordinates,
-      jobStatus,
-      postedDate
+      shortAddress,
+      industry,
+      jobScope,
+      jobRequirements,
+      shifts
+    } = req.body;
+
+    // Validate Employer
+    const employerExists = await Employer.findById(company);
+    if (!employerExists) {
+      return res.status(404).json({ message: "Employer not found" });
+    }
+
+    // Validate Outlet
+    const outletExists = await Outlet.findById(outlet);
+    if (!outletExists) {
+      return res.status(404).json({ message: "Outlet not found" });
+    }
+
+    // Create Job Entry
+    const newJob = new Job({
+      jobIcon: "/static/jobIcon.png", // Default Icon
+      jobName,
+      company,
+      outlet,
+      date: new Date(date),
+      location,
+      shortAddress, 
+      industry,
+      outletImage: outletExists.outletImage || "/static/outletImage.png",
+      jobScope,
+      jobRequirements
     });
 
-    await job.save();
+    // Save Job
+    const savedJob = await newJob.save();
 
-    res.status(201).json(job);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    // Handle Shifts if provided
+    let createdShifts = [];
+    if (shifts && shifts.length > 0) {
+      createdShifts = await Shift.insertMany(
+        shifts.map(shift => ({
+          job: savedJob._id,
+          startTime: shift.startTime,
+          startMeridian: shift.startMeridian,
+          endTime: shift.endTime,
+          endMeridian: shift.endMeridian,
+          vacancy: shift.vacancy,
+          standbyVacancy: shift.standbyVacancy,
+          duration: shift.duration,
+          breakHours: shift.breakHours,
+          breakType: shift.breakType,
+          rateType: shift.rateType,
+          payRate: shift.payRate,
+          totalWage: shift.payRate * shift.duration,
+        }))
+      );
+
+      // Associate shifts with the job
+      savedJob.shifts = createdShifts.map(shift => shift._id);
+      await savedJob.save();
+    }
+
+    return res.status(201).json({ message: "Job created successfully", job: savedJob, shifts: createdShifts });
+  } catch (error) {
+    console.error("Error creating job:", error);
+    return res.status(500).json({ message: "Internal server error", error });
   }
 };
 
 exports.searchJobs = async (req, res) => {
   try {
-    const { jobName, location, status, employerId, outletId } = req.query;
+    const { jobName, employerId, selectedDate } = req.query;
 
-    // Validate ObjectId inputs
-    if (employerId && !mongoose.Types.ObjectId.isValid(employerId)) {
-      return res.status(400).json({ error: "Invalid Employer ID" });
-    }
-    if (outletId && !mongoose.Types.ObjectId.isValid(outletId)) {
-      return res.status(400).json({ error: "Invalid Outlet ID" });
-    }
-
-    // Build filters dynamically
     const filters = {};
-    if (jobName) filters.jobName = { $regex: jobName, $options: "i" }; // Case-insensitive regex for jobName
-    if (location) filters.location = { $regex: location, $options: "i" }; // Case-insensitive regex for location
-    if (status) filters.jobStatus = status; // Exact match for job status
-    if (employerId) filters.employer = mongoose.Types.ObjectId(employerId);
-    if (outletId) filters.outlet = mongoose.Types.ObjectId(outletId);
 
-    // Fetch jobs based on filters
+    // ✅ Search by job name (case-insensitive)
+    if (jobName) filters.jobName = { $regex: jobName, $options: "i" };
+
+    // ✅ Filter by employer ID (Only if valid ObjectId)
+    if (employerId && mongoose.Types.ObjectId.isValid(employerId)) {
+      filters.employer = mongoose.Types.ObjectId(employerId);
+    }
+
+    // ✅ Filter jobs by date (Assuming job's shift has a "date" field)
+    if (selectedDate) {
+      filters["shifts.date"] = selectedDate; // Ensure the date format matches
+    }
+
     const jobs = await Job.find(filters)
-      .populate("employer", "companyName")
+      .populate("company", "companyLegalName companyLogo")
       .populate("outlet", "outletName location outletImage");
 
     res.status(200).json({ success: true, jobs });
@@ -93,224 +120,211 @@ exports.searchJobs = async (req, res) => {
   }
 };
 
+
 // Get all jobs with pagination
 exports.getAllJobs = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
+    const jobs = await Job.find()
+      .populate("company", "companyLegalName companyLogo")
+      .populate("outlet", "outletName outletAddress")
+      .populate("shifts");
 
-    // Fetch job data with selected fields
-    const jobs = await Job.find({})
-      .populate('employer', '_id companyName contractEndDate companyLogo')
-      .populate('outlet', '_id outletName location outletImage outletType')
-      .skip((page - 1) * limit)
-      .limit(Number(limit));
+    const jobsWithPlanData = jobs.map((job) => {
+      const shifts = job.shifts || [];
+      
+      if (shifts.length === 0) {
+        return {
+          ...job.toObject(),
+          outletTiming: "Not Available",
+          estimatedWage: 0,
+          payRatePerHour: "Not Available",
+          slotLabel: "New",
+        };
+      }
 
-    // Get application counts for all jobs
-    const applicationCounts = await Application.aggregate([
-      {
-        $group: {
-          _id: '$jobId',
-          applicationCount: { $sum: 1 },
-        },
-      },
-    ]);
+      // Get the 1st shift start & end time
+      const firstShift = shifts[0];
+      const outletTiming = `${firstShift.startTime}${firstShift.startMeridian} - ${firstShift.endTime}${firstShift.endMeridian}`;
 
-    // Map application counts
-    const applicationCountMap = {};
-    applicationCounts.forEach((item) => {
-      applicationCountMap[item._id] = item.applicationCount;
-    });
+      // Calculate total estimated wage (sum of all shifts)
+      const estimatedWage = shifts.reduce((sum, shift) => sum + shift.totalWage, 0);
 
-    // Helper function to extract short address before first comma
-    const getShortAddress = (address) => {
-      return address ? address.split(',')[0].trim() : '';
-    };
+      // Get a distinct pay rate per hour from shifts (assumes uniform rate)
+      const payRatePerHour = `$${firstShift.payRate}/Hr`;
 
-    // Format jobs for UI
-    const formattedJobs = jobs.map((job) => {
-      const applicationCount = applicationCountMap[job._id] || 0;
-      const popularity = Math.min(applicationCount * 10, 100); // Max 100%
+      // Determine slot label logic
+      let slotLabel = "New";
+      const totalVacancies = shifts.reduce((sum, shift) => sum + shift.vacancy, 0);
+      const totalStandby = shifts.reduce((sum, shift) => sum + shift.standbyVacancy, 0);
 
-      const totalPotentialWages = job.dates.reduce((total, date) => {
-        return (
-          total +
-          date.shifts.reduce((shiftTotal, shift) => shiftTotal + shift.totalWage, 0)
-        );
-      }, 0);
-
-      // Calculate total pay rate
-      const totalPayRate = job.dates.reduce((total, date) => {
-        return (
-          total +
-          date.shifts.reduce((shiftTotal, shift) => {
-            const effectiveHours = shift.duration - shift.breakHours;
-            return shiftTotal + shift.payRate * effectiveHours;
-          }, 0)
-        );
-      }, 0);
-
-      const totalVacancies = job.dates.reduce((total, date) => {
-        return (
-          total +
-          date.shifts.reduce((shiftTotal, shift) => shiftTotal + shift.vacancy, 0)
-        );
-      }, 0);
-
-      // Extract first shift's break info (assuming all shifts have the same break rules)
-      const firstShift = job.dates.length > 0 && job.dates[0].shifts.length > 0 ? job.dates[0].shifts[0] : null;
-      const breakHours = firstShift ? firstShift.breakHours : 0;
-      const breakType = firstShift ? firstShift.breakType : "Unpaid";
-
-      // Extract only the start times of shifts
-      const shiftsAvailable = job.dates.flatMap((date) =>
-        date.shifts.map((shift) => shift.startTime)
-      );
+      if (totalVacancies >= 10) {
+        slotLabel = "Trending";
+      } else if (totalVacancies > 3) {
+        slotLabel = "Limited Slots";
+      } else if (totalVacancies === 1) {
+        slotLabel = "Last Slot";
+      } else if (totalVacancies === 0 && totalStandby > 0) {
+        slotLabel = "Standby Slot Available";
+      }
 
       return {
-        _id: job._id,
-        jobName: job.jobName,
-        subtitle: job.subtitle,
-        location: getShortAddress(job.location),
-        jobStatus: job.jobStatus,
-        totalPotentialWages: `${totalPotentialWages}`,
-        payRate: `$${totalPayRate}/Hr`,
-        subtitleIcon: job.subtitleIcon,
-        jobIcon: job.jobIcon,
-        popularity: `${popularity}%`,
-        postedDate: job.postedDate,
-        employer: {
-          companyName: job.employer.companyName,
-          companyLogo: job.employer.companyLogo,
-        },
-        outlet: {
-          outletName: job.outlet.outletName,
-          outletImage: job.outlet.outletImage,
-          location: getShortAddress(job.outlet.location),
-          outletType: job.outlet.outletType,
-        },
-        shiftsAvailable, // Only includes shift start times
-        breakHours, // Directly added break hours
-        breakType, // Directly added break type
-        showFewShiftsLeft: totalVacancies <= 5,
-        showDates: job.dates.map((date) => date.date),
+        ...job.toObject(),
+        outletTiming,
+        estimatedWage,
+        payRatePerHour,
+        slotLabel,
+        shortAddress: job.shortAddress || "Not Available",
       };
     });
 
-    res.status(200).json({
-      success: true,
-      totalJobs: await Job.countDocuments(),
-      page: Number(page),
-      jobs: formattedJobs,
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(200).json({ jobs: jobsWithPlanData });
+  } catch (error) {
+    console.error("Error fetching jobs:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 };
 
+
+//Job Listings 
+exports.getJobs = async (req, res) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+
+    const jobs = await Job.find()
+      .select("jobName location popularity company requirements shifts status image dates potentialWages duration payRate createdAt")
+      .skip((page - 1) * limit)
+      .limit(Number(limit));
+
+    const totalJobs = await Job.countDocuments();
+
+    res.status(200).json({
+      jobs,
+      totalPages: Math.ceil(totalJobs / limit),
+      currentPage: page,
+      totalJobs
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch jobs" });
+  }
+};
 
 // Get a specific job by ID
 
 exports.getJobById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const jobId = req.params.id;
+
+    // Find the user
     const user = await User.findById(userId);
 
+    // Check if the user has already applied for this job
     const applied = await Application.findOne({
-      jobId: new mongoose.Types.ObjectId(req.params.id),
+      jobId: new mongoose.Types.ObjectId(jobId),
       userId: new mongoose.Types.ObjectId(userId),
       appliedStatus: "Applied",
     });
 
-    const job = await Job.findById(req.params.id)
-      .populate("employer", "_id companyName contractEndDate companyLogo")
-      .populate("outlet", "_id outletName location outletImage outletType");
+    // Fetch the job details
+    const job = await Job.findById(jobId)
+      .populate("company", "companyLegalName companyLogo")
+      .populate("outlet", "outletName outletAddress outletImage");
 
-    if (!job) return res.status(404).json({ message: "Job not found" });
+    if (!job) {
+      return res.status(404).json({ message: "Job not found" });
+    }
 
-    // Calculate total salary, potential wages, and total pay rate
-    let totalPotentialWages = 0;
-    let totalPayRate = 0;
-    let totalVacancies = 0;
+    // Fetch shifts for this job
+    const shifts = await Shift.find({ job: jobId });
 
-    const shiftsAvailable = job.dates.map((date) => {
-      return {
-        date: date.date,
-        shifts: date.shifts.map((shift) => {
-          // Ensure vacancies are not negative
-          const filledVacancies = Math.max(shift.filledVacancies, 0);
-          const standbyFilled = Math.max(shift.standbyFilled, 0);
-          const vacancy = Math.max(shift.vacancy, 0);
-          const standbyVacancy = Math.max(shift.standbyVacancy, 0);
+    // Organize shifts by date and apply standby logic
+    const shiftsByDate = {};
+    shifts.forEach(shift => {
+      const shiftDate = moment(shift.date).format("YYYY-MM-DD");
+      
+      // Determine standby availability
+      const isFullyBooked = shift.appliedShifts >= shift.vacancy;
+      const hasStandbyVacancies = shift.standbyVacancy > 0;
 
-          // Calculate effective hours (excluding break hours)
-          const effectiveHours = shift.duration - shift.breakHours;
+      if (!shiftsByDate[shiftDate]) {
+        shiftsByDate[shiftDate] = [];
+      }
 
-          // Update total wages and pay rate calculations
-          const totalWage =
-            shift.rateType === "Hourly rate"
-              ? shift.payRate * effectiveHours
-              : shift.payRate;
-
-          totalPotentialWages += totalWage;
-          totalPayRate += shift.payRate * effectiveHours;
-          totalVacancies += vacancy;
-
-          return {
-            _id: shift._id,
-            startTime: moment(shift.startTime, "HH:mm").format("hh:mm A"), // Convert to AM/PM
-            endTime: moment(shift.endTime, "HH:mm").format("hh:mm A"), // Convert to AM/PM
-            payRate: `$${shift.payRate}`, // Add '$' sign
-            vacancy,
-            standbyVacancy,
-            filledVacancies,
-            standbyFilled,
-            duration: shift.duration,
-            breakHours: shift.breakHours,
-            totalWage: `$${totalWage}`, // Add '$' sign
-          };
-        }),
-      };
+      // Include shift only if not fully booked OR if standby vacancies exist
+      if (!isFullyBooked || hasStandbyVacancies) {
+        shiftsByDate[shiftDate].push({
+          id: shift._id,
+          startTime: moment(shift.startTime, "HH:mm").format("hh:mm A"),
+          endTime: moment(shift.endTime, "HH:mm").format("hh:mm A"),
+          duration: shift.duration,
+          breakHours: shift.breakHours,
+          breakType: shift.breakType,
+          rateType: shift.rateType,
+          payRate: `$${shift.payRate}`,
+          totalWage: `$${shift.payRate * shift.duration}`,
+          vacancy: shift.vacancy,
+          standbyVacancy: hasStandbyVacancies ? shift.standbyVacancy : 0,
+          appliedShifts: shift.appliedShifts || 0,
+          availableShifts: shift.vacancy - shift.appliedShifts, 
+          standbyAvailable: hasStandbyVacancies,
+          standbyMessage: hasStandbyVacancies 
+            ? "This shift is fully booked. You can apply as a standby worker."
+            : null,
+        });
+      }
     });
 
-    // Format the response
+    // Collect all available job dates
+    const jobDates = Object.keys(shiftsByDate).map(date => ({
+      date,
+      shifts: shiftsByDate[date],
+    }));
+
+    // Calculate total potential wage and total pay rate
+    // const totalPotentialWages = shifts.reduce((sum, shift) => sum + (shift.payRate * shift.duration), 0);
+    // const totalPayRate = shifts.reduce((sum, shift) => sum + shift.payRate, 0);
+    const totalVacancies = shifts.reduce((sum, shift) => sum + shift.vacancy, 0);
+
+    // Final formatted job response
     const formattedJob = {
-      _id: job._id,
+      id: job._id,
       jobName: job.jobName,
-      subtitle: job.subtitle,
-      subtitleIcon: job.subtitleIcon,
       jobIcon: job.jobIcon,
-      jobStatus: job.jobStatus,
-      postedDate: job.postedDate,
-      salary: `$${totalPotentialWages}`, // Add '$' sign
-      totalPotentialWages: `$${totalPotentialWages}`, // Add '$' sign
-      totalPayRate: `$${totalPayRate}`, // Add '$' sign
+      employer: {
+        id: job.company._id,
+        name: job.company.companyLegalName,
+        logo: job.company.companyLogo,
+      },
+      outlet: {
+        id: job.outlet._id,
+        name: job.outlet.outletName,
+        address: job.outlet.outletAddress,
+        image: job.outlet.outletImage,
+      },
+      location: job.location,
+      // industry: job.industry,
+      jobScope: job.jobScope,
+      jobRequirements: job.jobRequirements,
+      // salary: `$${totalPotentialWages}`,
+      // totalPotentialWages: `$${totalPotentialWages}`,
+      // totalPayRate: `$${totalPayRate}`,
       totalVacancies,
       applied: applied ? true : false,
       profileCompleted: user?.profileCompleted || false,
-      location: job.location,
-      locationCoordinates: job.locationCoordinates,
-      requirements: job.requirements,
-      shiftsAvailable,
-      employer: {
-        _id: job.employer._id,
-        name: job.employer.companyName,
-        companyLogo: job.employer.companyLogo,
-        contractEndDate: job.employer.contractEndDate,
-      },
-      outlet: {
-        _id: job.outlet._id,
-        name: job.outlet.outletName,
-        location: job.outlet.location,
-        outletImage: job.outlet.outletImage,
-        outletType: job.outlet.outletType,
-      },
+      jobDates,
+      jobCategory: job.industry,
+      standbyFeature: true, // Indicates if standby is available for any shift
+      standbyDisclaimer:
+        "Applying for a standby shift means you will only be activated if a vacancy arises. You will be entitled to an additional $10 upon shift completion. No-shows will result in penalties.",
     };
 
-    res.status(200).json(formattedJob);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(200).json({ job: formattedJob });
+  } catch (error) {
+    console.error("Error fetching job by ID:", error);
+    res.status(500).json({ message: "Internal server error", error });
   }
 };
+
 
 
 // Update a job
@@ -489,7 +503,7 @@ exports.getOngoingJobs = async (req, res) => {
     const applications = await Application.find({ userId, status: 'Ongoing' })
     .populate({
       path: 'jobId',
-      select: 'jobName jobIcon location subtitle subtitleIcon dates outlet',
+      select: 'jobName jobIcon location subtitle subtitleIcon outlet',
       populate: { path: 'outlet', select: 'outletImage' }, 
     })
       .lean(); 
@@ -501,10 +515,10 @@ exports.getOngoingJobs = async (req, res) => {
       let shiftDetails = null;
 
       // Iterate through dates to find the matching shift
-      for (const date of job.dates) {
-        shiftDetails = date.shifts.find((shift) => shift._id.equals(app.shiftId));
-        if (shiftDetails) break;
-      }
+      // for (const date of job.dates) {
+      //   shiftDetails = date.shifts.find((shift) => shift._id.equals(app.shiftId));
+      //   if (shiftDetails) break;
+      // }
 
       // If no shift found, skip this application
       if (!shiftDetails) return null;
@@ -646,7 +660,7 @@ exports.getCompletedJobs = async (req, res) => {
     const applications = await Application.find({ userId, status: 'Completed' })
     .populate({
       path: 'jobId',
-      select: 'jobName jobIcon location subtitle subtitleIcon dates outlet',
+      select: 'jobName jobIcon location subtitle subtitleIcon outlet',
       populate: { path: 'outlet', select: 'outletImage' }, // Populate outletImage
     })
       .lean(); // Convert documents to plain objects for easier manipulation
@@ -658,10 +672,10 @@ exports.getCompletedJobs = async (req, res) => {
       let shiftDetails = null;
 
       // Iterate through dates to find the matching shift
-      for (const date of job.dates) {
-        shiftDetails = date.shifts.find((shift) => shift._id.equals(app.shiftId));
-        if (shiftDetails) break;
-      }
+      // for (const date of job.dates) {
+      //   shiftDetails = date.shifts.find((shift) => shift._id.equals(app.shiftId));
+      //   if (shiftDetails) break;
+      // }
 
       // If no shift found, skip this application
       if (!shiftDetails) return null;
@@ -701,7 +715,7 @@ exports.getCancelledJobs = async (req, res) => {
     const applications = await Application.find({ userId, status: 'Cancelled' })
     .populate({
       path: 'jobId',
-      select: 'jobName jobIcon location subtitle subtitleIcon dates outlet',
+      select: 'jobName jobIcon location subtitle subtitleIcon outlet',
       populate: { path: 'outlet', select: 'outletImage' }, // Populate outletImage
     })
       .lean(); // Convert documents to plain objects for easier manipulation
@@ -713,10 +727,10 @@ exports.getCancelledJobs = async (req, res) => {
       let shiftDetails = null;
 
       // Iterate through dates to find the matching shift
-      for (const date of job.dates) {
-        shiftDetails = date.shifts.find((shift) => shift._id.equals(app.shiftId));
-        if (shiftDetails) break;
-      }
+      // for (const date of job.dates) {
+      //   shiftDetails = date.shifts.find((shift) => shift._id.equals(app.shiftId));
+      //   if (shiftDetails) break;
+      // }
 
       // If no shift found, skip this application
       if (!shiftDetails) return null;

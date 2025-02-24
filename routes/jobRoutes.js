@@ -4,6 +4,7 @@ const {authMiddleware} = require('../middlewares/auth');
 const {
   createJob,
   getAllJobs,
+  getJobs,
   getJobById,
   updateJob,
   deleteJob,
@@ -50,6 +51,7 @@ router.get('/transactions', getTransactions);
 router.get('/search',  searchJobs);
 router.post('/', authMiddleware, createJob);
 router.get('/', getAllJobs);
+router.get('/', authMiddleware, getJobs);
 router.get('/:id', authMiddleware, getJobById); 
 router.put('/:id', authMiddleware, updateJob); 
 router.delete('/:id',authMiddleware,  deleteJob); 

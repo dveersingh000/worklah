@@ -121,106 +121,124 @@ exports.getCandidatesByJob = async (req, res) => {
   }
 };
 
+
 exports.getCandidateProfile = async (req, res) => {
-    try {
-      const { id } = req.params;
-  
-      // ✅ Validate MongoDB ObjectId
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        return res.status(400).json({ message: "Invalid Candidate ID" });
-      }
-  
-      // ✅ Fetch candidate details
-      const user = await User.findById(id)
-        .populate("profileId", "dob gender nricNumber nricImages finNumber finImages studentIdNumber schoolName")
-        .lean();
-  
-      if (!user) return res.status(404).json({ message: "Candidate not found" });
-  
-      // ✅ Fetch candidate applications
-      const applications = await Application.find({ userId: id })
-        .populate({
-          path: "jobId",
-          select: "jobName jobStatus employer outlet dates location rateType",
-          populate: [
-            { path: "employer", select: "companyName" },
-            { path: "outlet", select: "outletName location" },
-          ],
-        })
-        .lean();
-  
-      // ✅ Format candidate details
-      const candidateProfile = {
-        candidateId: user._id,
-        fullName: user.fullName,
-        profilePicture: user.profilePicture || "/static/default-avatar.png",
-        workPassStatus: "Verified",
-        registeredAt: moment(user.createdAt).format("DD MMM, YYYY, hh:mm A"),
-        personalDetails: {
-          eWalletAmount: "€ 2,450",
-          contactNumber: user.phoneNumber,
-          dob: user.profileId?.dob ? moment(user.profileId.dob).format("DD - MM - YYYY") : "N/A",
-          gender: user.profileId?.gender || "N/A",
-          nationality: "Singapore",
-          paynowNumber: "4512-1321-2312",
-          race: "Korean",
-          nric: user.profileId?.nricNumber ? user.profileId.nricNumber.replace(/.(?=.{4})/g, "*") : "N/A",
-          foodHygieneCert: user.profileId?.finImages?.front || "N/A",
-          icNumber: user.profileId?.finNumber || "N/A",
-          nricImages: {
-            front: user.profileId?.nricImages?.front || "N/A",
-            back: user.profileId?.nricImages?.back || "N/A",
-          },
+  try {
+    const { id } = req.params;
+
+    // ✅ Validate MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid Candidate ID" });
+    }
+
+    // ✅ Fetch candidate details
+    const user = await User.findById(id)
+      .populate("profileId", "dob gender nricNumber nricImages finNumber finImages studentIdNumber schoolName")
+      .lean();
+
+    if (!user) return res.status(404).json({ message: "Candidate not found" });
+
+    // ✅ Fetch candidate applications
+    const applications = await Application.find({ userId: id })
+      .populate({
+        path: "jobId",
+        select: "jobName jobStatus employer outlet dates location rateType",
+        populate: [
+          { path: "employer", select: "companyName" },
+          { path: "outlet", select: "outletName location" },
+        ],
+      })
+      .lean();
+
+    // ✅ Format candidate details
+    const candidateProfile = {
+      candidateId: user._id,
+      fullName: user.fullName,
+      profilePicture: user.profilePicture || "/static/default-avatar.png",
+      workPassStatus: "Verified",
+      registeredAt: moment(user.createdAt).format("DD MMM, YYYY, hh:mm A"),
+      personalDetails: {
+        eWalletAmount: "€ 2,450",
+        contactNumber: user.phoneNumber,
+        dob: user.profileId?.dob ? moment(user.profileId.dob).format("DD - MM - YYYY") : "N/A",
+        gender: user.profileId?.gender || "N/A",
+        nationality: "Singapore",
+        paynowNumber: "4512-1321-2312",
+        race: "Korean",
+        nric: user.profileId?.nricNumber ? user.profileId.nricNumber.replace(/.(?=.{4})/g, "*") : "N/A",
+        foodHygieneCert: user.profileId?.finImages?.front || "N/A",
+        icNumber: user.profileId?.finNumber || "N/A",
+        nricImages: {
+          front: user.profileId?.nricImages?.front || "N/A",
+          back: user.profileId?.nricImages?.back || "N/A",
         },
-      };
-  
-      // ✅ Process active job details
-      const activeJob = applications.find(app => app.status === "Ongoing");
-      let activeJobDetails = null;
-      if (activeJob) {
-        const job = activeJob.jobId;
-        let shiftDetails = null;
-  
-        for (const date of job.dates) {
-          if (new Date(date.date).toISOString().split("T")[0] === new Date(activeJob.date).toISOString().split("T")[0]) {
-            shiftDetails = date.shifts.find((shift) => shift._id.toString() === activeJob.shiftId.toString());
-            break;
-          }
+      },
+    };
+
+    // ✅ Process active job details
+    const activeJob = applications.find(app => app.status === "Ongoing");
+    let activeJobDetails = null;
+    
+    if (activeJob?.jobId?.dates) {
+      const job = activeJob.jobId;
+      let shiftDetails = null;
+
+      for (const date of job.dates || []) {
+        if (
+          new Date(date.date).toISOString().split("T")[0] ===
+          new Date(activeJob.date).toISOString().split("T")[0]
+        ) {
+          shiftDetails = date.shifts?.find(
+            (shift) => shift._id.toString() === activeJob.shiftId?.toString()
+          );
+          break;
         }
-  
-        activeJobDetails = {
-          jobName: job.jobName,
-          employer: job.employer.companyName,
-          jobStatus: job.jobStatus,
-          date: moment(activeJob.date).format("DD MMM, YYYY"),
-          shiftStartTime: shiftDetails?.startTime || "N/A",
-          shiftEndTime: shiftDetails?.endTime || "N/A",
-          totalDuration: shiftDetails?.duration ? `${shiftDetails.duration} hrs` : "N/A",
-          totalWage: shiftDetails?.totalWage ? `$${shiftDetails.totalWage}` : "$--",
-          rateType: job.rateType || "Flat Rate",
-          clockedInTime: activeJob.clockInTime ? moment(activeJob.clockInTime).format("hh:mm A") : "--",
-          clockedOutTime: activeJob.clockOutTime ? moment(activeJob.clockOutTime).format("hh:mm A") : "--",
-          wageGenerated: shiftDetails?.totalWage ? `$${shiftDetails.totalWage}` : "$--",
-        };
       }
-  
-      // ✅ Process job history
-      const jobHistory = applications.map(app => {
+
+      activeJobDetails = {
+        jobName: job.jobName || "N/A",
+        employer: job.employer?.companyName || "N/A",
+        jobStatus: job.jobStatus || "N/A",
+        date: moment(activeJob.date).format("DD MMM, YYYY"),
+        shiftStartTime: shiftDetails?.startTime || "N/A",
+        shiftEndTime: shiftDetails?.endTime || "N/A",
+        totalDuration: shiftDetails?.duration ? `${shiftDetails.duration} hrs` : "N/A",
+        totalWage: shiftDetails?.totalWage ? `$${shiftDetails.totalWage}` : "$--",
+        rateType: job.rateType || "Flat Rate",
+        clockedInTime: activeJob.clockInTime ? moment(activeJob.clockInTime).format("hh:mm A") : "--",
+        clockedOutTime: activeJob.clockOutTime ? moment(activeJob.clockOutTime).format("hh:mm A") : "--",
+        wageGenerated: shiftDetails?.totalWage ? `$${shiftDetails.totalWage}` : "$--",
+      };
+    }
+
+    // ✅ Process job history
+    const jobHistory = applications
+      .map(app => {
         const job = app.jobId;
+        if (!job?.dates || job.dates.length === 0) {
+          console.error("Missing job dates for application:", app);
+          return null; // Skip invalid data
+        }
+
         let shiftDetails = null;
-  
-        for (const date of job.dates) {
-          if (new Date(date.date).toISOString().split("T")[0] === new Date(app.date).toISOString().split("T")[0]) {
-            shiftDetails = date.shifts.find((shift) => shift._id.toString() === app.shiftId.toString());
+
+        for (const date of job.dates || []) {
+          if (
+            new Date(date.date).toISOString().split("T")[0] ===
+            new Date(app.date).toISOString().split("T")[0]
+          ) {
+            shiftDetails = date.shifts?.find(
+              (shift) => shift._id.toString() === app.shiftId?.toString()
+            );
             break;
           }
         }
-  
+
         return {
-          jobName: job.jobName,
-          jobId: job._id,
+          jobName: job.jobName || "N/A",
+          jobId: job._id || "N/A",
           date: moment(app.date).format("DD MMM, YYYY"),
-          employer: job.employer.companyName,
+          employer: job.employer?.companyName || "N/A",
           shiftTiming: `${shiftDetails?.startTime || "N/A"} - ${shiftDetails?.endTime || "N/A"}`,
           shiftId: shiftDetails?._id || "N/A",
           clockedIn: app.clockInTime ? moment(app.clockInTime).format("hh:mm A") : "--",
@@ -231,34 +249,36 @@ exports.getCandidateProfile = async (req, res) => {
           rateType: job.rateType || "Flat Rate",
           totalWage: shiftDetails?.totalWage ? `$${shiftDetails.totalWage}` : "$--",
           wageGenerated: shiftDetails?.totalWage ? `$${shiftDetails.totalWage}` : "$--",
-          jobStatus: app.status,
+          jobStatus: app.status || "N/A",
           paymentStatus: app.status === "Completed" ? "Paid" : "Pending",
         };
-      });
-  
-      // ✅ Work history details
-      const workHistory = {
-        attendanceRate: "95%",
-        totalCompletedJobs: applications.filter(app => app.status === "Completed").length,
-        workingHours: "234",
-        cancellationsWithProof: "1",
-        neverTurnUp: "1",
-        cancellationsLessThan24hrs: "6",
-        cancellationsMoreThan24hrs: "4",
-      };
-  
-      res.status(200).json({
-        success: true,
-        candidateProfile,
-        activeJob: activeJobDetails || {},
-        jobHistory,
-        workHistory,
-      });
-    } catch (error) {
-      console.error("Error in getCandidateProfile:", error);
-      res.status(500).json({ error: "Failed to fetch candidate details", details: error.message });
-    }
-  };
+      })
+      .filter(job => job !== null); // Remove null entries
+
+    // ✅ Work history details
+    const workHistory = {
+      attendanceRate: "95%",
+      totalCompletedJobs: applications.filter(app => app.status === "Completed").length,
+      workingHours: "234",
+      cancellationsWithProof: "1",
+      neverTurnUp: "1",
+      cancellationsLessThan24hrs: "6",
+      cancellationsMoreThan24hrs: "4",
+    };
+
+    res.status(200).json({
+      success: true,
+      candidateProfile,
+      activeJob: activeJobDetails || {},
+      jobHistory,
+      workHistory,
+    });
+  } catch (error) {
+    console.error("Error in getCandidateProfile:", error);
+    res.status(500).json({ error: "Failed to fetch candidate details", details: error.message });
+  }
+};
+
   
   exports.updateCandidate = async (req, res) => {
     try {

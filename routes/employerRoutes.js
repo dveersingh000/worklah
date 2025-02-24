@@ -1,6 +1,7 @@
 const express = require('express');
+const multer = require("multer");
 const {
-  getAllEmployers,
+  getEmployers,
   getEmployerById,
   createEmployer,
   updateEmployer,
@@ -8,9 +9,20 @@ const {
 } = require('../controllers/employerController');
 const router = express.Router();
 
-router.get('/', getAllEmployers);
+// ✅ Set up file upload middleware
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/");
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + "-" + file.originalname);
+  },
+});
+const upload = multer({ storage });
+
+router.get('/', getEmployers);
 router.get('/:id', getEmployerById);
-router.post('/', createEmployer);
+router.post("/create", upload.fields([{ name: "companyLogo" }, { name: "acraCertificate" }]), createEmployer);
 router.put('/:id', updateEmployer);
 router.delete('/:id', deleteEmployer);
 

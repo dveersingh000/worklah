@@ -55,8 +55,8 @@ exports.completeProfile = async (req, res) => {
 
     // ✅ Handle Cloudinary Uploads Based on Employment Status
     switch (user.employmentStatus) {
-      case "PR":
-        if (!nricNumber) return res.status(400).json({ error: "NRIC Number is required for PR." });
+      case "Singaporean/Permanent Resident":
+        if (!nricNumber) return res.status(400).json({ error: "NRIC Number is required for Singaporean/Permanent Resident." });
 
         profile.nricNumber = nricNumber;
         profile.nricImages = {
@@ -65,8 +65,8 @@ exports.completeProfile = async (req, res) => {
         };
         break;
 
-      case "LTVP":
-        if (!finNumber || !plocExpiryDate) return res.status(400).json({ error: "FIN Number and PLOC Expiry Date are required for LTVP." });
+      case "Long Term Visit Pass Holder":
+        if (!finNumber || !plocExpiryDate) return res.status(400).json({ error: "FIN Number and PLOC Expiry Date are required for Long Term Visit Pass Holder." });
 
         profile.finNumber = finNumber;
         profile.finImages = {
@@ -77,7 +77,7 @@ exports.completeProfile = async (req, res) => {
         profile.plocExpiryDate = plocExpiryDate;
         break;
 
-      case "Student":
+      case "Student Pass":
         if (!studentIdNumber || !schoolName) return res.status(400).json({ error: "Student ID Number and School Name are required for Students." });
 
         profile.studentIdNumber = studentIdNumber;
@@ -222,7 +222,7 @@ exports.updateProfile = async (req, res) => {
 
     // Update fields based on employment status
     switch (user.employmentStatus) {
-      case 'PR':
+      case 'Singaporean/Permanent Resident':
         if (updates.nricNumber) profile.nricNumber = updates.nricNumber;
         if (req.files?.nricFront?.[0]?.path || req.files?.nricBack?.[0]?.path) {
           profile.nricImages = {
@@ -231,7 +231,7 @@ exports.updateProfile = async (req, res) => {
           };
         }
         break;
-      case 'LTVP':
+      case 'Long Term Visit Pass Holder':
         if (updates.finNumber) profile.finNumber = updates.finNumber;
         if (req.files?.finFront?.[0]?.path || req.files?.finBack?.[0]?.path) {
           profile.finImages = {
@@ -242,7 +242,7 @@ exports.updateProfile = async (req, res) => {
         if (req.files?.plocImage?.[0]?.path) profile.plocImage = req.files.plocImage[0].path;
         if (updates.plocExpiryDate) profile.plocExpiryDate = updates.plocExpiryDate;
         break;
-      case 'Student':
+      case 'Student Pass':
         if (updates.studentIdNumber) profile.studentIdNumber = updates.studentIdNumber;
         if (updates.schoolName) profile.schoolName = updates.schoolName;
         if (req.files?.studentCard?.[0]?.path) profile.studentCardImage = req.files.studentCard[0].path;
