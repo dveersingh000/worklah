@@ -257,15 +257,17 @@ exports.getJobById = async (req, res) => {
           startTime: moment(shift.startTime, "HH:mm").format("hh:mm A"),
           endTime: moment(shift.endTime, "HH:mm").format("hh:mm A"),
           duration: shift.duration,
-          breakHours: shift.breakHours,
-          breakType: shift.breakType,
-          rateType: shift.rateType,
+          breakDuration: shift.breakHours,
+          breakPaid: shift.breakType,
+          hourlyRate: shift.rateType,
           payRate: `$${shift.payRate}`,
           totalWage: `$${shift.payRate * shift.duration}`,
-          vacancy: shift.vacancy,
-          standbyVacancy: hasStandbyVacancies ? shift.standbyVacancy : 0,
-          appliedShifts: shift.appliedShifts || 0,
-          availableShifts: shift.vacancy - shift.appliedShifts, 
+          vacancy: `${shift.appliedShifts.length}/${shift.vacancy}`,
+          standbyVacancy: shift.standbyVacancy > 0 ? 
+                      `${shift.appliedShifts.length}/${shift.standbyVacancy}` : "-/-",
+          isSelected: shift.appliedShifts.includes(userId),
+          // appliedShifts: shift.appliedShifts || 0,
+          // availableShifts: shift.vacancy - shift.appliedShifts, 
           standbyAvailable: hasStandbyVacancies,
           standbyMessage: hasStandbyVacancies 
             ? "This shift is fully booked. You can apply as a standby worker."
@@ -275,8 +277,11 @@ exports.getJobById = async (req, res) => {
     });
 
     // Collect all available job dates
-    const jobDates = Object.keys(shiftsByDate).map(date => ({
-      date,
+    const availableShiftsData = Object.keys(shiftsByDate).map(date => ({
+      date: moment(date).format("D ddd MMM"),
+      appliedShifts: shiftsByDate[date].reduce((sum, shift) => 
+        sum + (Array.isArray(shift.appliedShifts) && shift.appliedShifts.includes(userId) ? 1 : 0), 0), 
+      availableShifts: shiftsByDate[date].length,
       shifts: shiftsByDate[date],
     }));
 
@@ -311,7 +316,7 @@ exports.getJobById = async (req, res) => {
       totalVacancies,
       applied: applied ? true : false,
       profileCompleted: user?.profileCompleted || false,
-      jobDates,
+      availableShiftsData,
       jobCategory: job.industry,
       standbyFeature: true, // Indicates if standby is available for any shift
       standbyDisclaimer:

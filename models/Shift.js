@@ -14,6 +14,7 @@ const shiftSchema = new mongoose.Schema({
   rateType: { type: String, enum: ['Flat rate', 'Hourly rate'] },
   payRate: { type: Number, required: true },
   totalWage: { type: Number },
+  appliedShifts: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 });
 
 module.exports = mongoose.model('Shift', shiftSchema);
