@@ -1,11 +1,11 @@
-const Job = require('../models/Job');
-const Employer = require('../models/Employer');
-const Outlet = require('../models/Outlet');
-const Application = require('../models/Application');
-const mongoose = require('mongoose');
-const moment = require('moment');
+const Job = require("../models/Job");
+const Employer = require("../models/Employer");
+const Outlet = require("../models/Outlet");
+const Application = require("../models/Application");
+const Shift = require("../models/Shift");
+const mongoose = require("mongoose");
+const moment = require("moment");
 
-// ✅ Fetch all jobs with filters, sorting & pagination
 exports.getAllJobs = async (req, res) => {
   try {
     const { page = 1, limit = 10, jobName, employerId, outletId, status, city } = req.query;
@@ -13,14 +13,19 @@ exports.getAllJobs = async (req, res) => {
     const filters = {};
     if (jobName) filters.jobName = { $regex: jobName, $options: "i" };
     if (status) filters.jobStatus = status;
-    if (employerId && mongoose.Types.ObjectId.isValid(employerId)) filters.employer = employerId;
+    if (employerId && mongoose.Types.ObjectId.isValid(employerId)) filters.company = employerId;
     if (outletId && mongoose.Types.ObjectId.isValid(outletId)) filters.outlet = outletId;
     if (city) filters.location = { $regex: city, $options: "i" };
 
     // Fetch jobs with employer and outlet details
     const jobs = await Job.find(filters)
-      .populate('employer', 'companyName companyLogo') // Employer Logo
-      .populate('outlet', 'outletName location outletImage') // Outlet Logo
+      .populate("company", "companyLegalName companyLogo")
+      .populate("outlet", "outletName outletAddress outletImage")
+      .populate({
+        path: "shifts",
+        model: "Shift",
+        select: "startTime startMeridian endTime endMeridian vacancy standbyVacancy duration breakHours breakType rateType payRate totalWage",
+      })
       .lean(); // Convert Mongoose documents to plain objects
 
     // Fetch applications to calculate filled vacancies & standby users
@@ -29,59 +34,43 @@ exports.getAllJobs = async (req, res) => {
         $group: {
           _id: "$jobId",
           totalApplications: { $sum: 1 },
-          standbyApplications: {
-            $sum: { $cond: [{ $eq: ["$isStandby", true] }, 1, 0] },
-          },
+          standbyApplications: { $sum: { $cond: [{ $eq: ["$isStandby", true] }, 1, 0] } },
         },
       },
     ]);
 
+    // Create a map of applications per job
     const applicationCountMap = {};
-    applicationCounts.forEach(app => {
+    applicationCounts.forEach((app) => {
       applicationCountMap[app._id] = {
         totalApplications: app.totalApplications || 0,
         standbyApplications: app.standbyApplications || 0,
       };
     });
 
-    // Format jobs response with additional details
-    const formattedJobs = jobs.map(job => {
+    // Format jobs response
+    const formattedJobs = jobs.map((job) => {
       let totalVacancy = 0;
       let totalStandby = 0;
-      let totalShifts = 0;
+      let totalShifts = job.shifts.length;
 
-      // Process shift data and move shift details outside of shiftDetails array
-      const shiftsArray = [];
-      const shiftSummary = {
-        totalVacancy: 0,
-        totalStandby: 0,
-        totalShifts: 0,
-      };
+      // Process shift data
+      const shiftsArray = job.shifts.map((shift) => {
+        totalVacancy += shift.vacancy;
+        totalStandby += shift.standbyVacancy;
 
-      job.dates.forEach(dateObj => {
-        dateObj.shifts.forEach(shift => {
-          totalShifts += 1;
-          totalVacancy += shift.vacancy;
-          totalStandby += shift.standbyVacancy;
-
-          shiftsArray.push({
-            shiftId: shift._id,
-            startTime: shift.startTime,
-            endTime: shift.endTime,
-            breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
-            breakType: shift.breakType, 
-            vacancy: shift.vacancy,
-            duration: shift.duration,
-            standbyVacancy: shift.standbyVacancy,
-            payRate: `$${shift.payRate}`,
-            totalWage: `$${shift.totalWage}`,
-          });
-        });
+        return {
+          shiftId: shift._id,
+          startTime: `${shift.startTime} ${shift.startMeridian}`,
+          endTime: `${shift.endTime} ${shift.endMeridian}`,
+          breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
+          vacancy: shift.vacancy,
+          standbyVacancy: shift.standbyVacancy,
+          duration: shift.duration,
+          payRate: `$${shift.payRate}`,
+          totalWage: `$${shift.totalWage}`,
+        };
       });
-
-      shiftSummary.totalVacancy = totalVacancy;
-      shiftSummary.totalStandby = totalStandby;
-      shiftSummary.totalShifts = totalShifts;
 
       const applicationStats = applicationCountMap[job._id] || {
         totalApplications: 0,
@@ -92,32 +81,30 @@ exports.getAllJobs = async (req, res) => {
         _id: job._id,
         jobName: job.jobName,
         employer: {
-          name: job.employer.companyName,
-          logo: job.employer.companyLogo,
+          name: job.company?.companyLegalName || "Unknown",
+          logo: job.company?.companyLogo || "/static/companyLogo.png",
         },
         outlet: {
-          name: job.outlet.outletName,
-          location: job.outlet.location,
-          logo: job.outlet.outletImage,
+          name: job.outlet?.outletName || "Unknown",
+          location: job.outlet?.outletAddress || "Not available",
+          logo: job.outlet?.outletImage || "/static/Job.png",
         },
-        numberOfShifts: shiftSummary.totalShifts,
-        vacancyUsers: `${applicationStats.totalApplications}/${shiftSummary.totalVacancy}`,
-        standbyUsers: `${applicationStats.standbyApplications}/${shiftSummary.totalStandby}`,
-        totalWage: `$${job.dates.reduce(
-          (acc, date) => acc + date.shifts.reduce((sum, shift) => sum + shift.totalWage, 0),
-          0
-        )}`,
-        jobStatus: job.jobStatus,
-        postedDate: moment(job.postedDate).format("DD MMM, YY"),
-        shiftSummary, // Shift summary data
-        shifts: shiftsArray, // All individual shift details
+        industry: job.industry,
+        date: moment(job.date).format("DD MMM, YY"),
+        numberOfShifts: totalShifts,
+        vacancyUsers: `${applicationStats.totalApplications}/${totalVacancy}`,
+        standbyUsers: `${applicationStats.standbyApplications}/${totalStandby}`,
+        totalWage: `$${shiftsArray.reduce((acc, shift) => acc + parseFloat(shift.totalWage.replace("$", "")), 0)}`,
+        jobStatus: job.jobStatus || "Unknown",
+        shiftSummary: { totalVacancy, totalStandby, totalShifts },
+        shifts: shiftsArray,
       };
     });
 
     // Fetch Dashboard Metrics
-    const totalActiveJobs = await Job.countDocuments({ jobStatus: 'Active' });
-    const totalUpcomingJobs = await Job.countDocuments({ jobStatus: 'Upcoming' });
-    const totalCancelledJobs = await Job.countDocuments({ jobStatus: 'Cancelled' });
+    const totalActiveJobs = await Job.countDocuments({ jobStatus: "Active" });
+    const totalUpcomingJobs = await Job.countDocuments({ jobStatus: "Upcoming" });
+    const totalCancelledJobs = await Job.countDocuments({ jobStatus: "Cancelled" });
 
     // Calculate Average Attendance Rate
     const attendanceData = await Application.aggregate([
@@ -145,52 +132,51 @@ exports.getAllJobs = async (req, res) => {
 };
 
 
+
 // ✅ Fetch a single job by ID (with employer, outlet, shifts)
 exports.getJobById = async (req, res) => {
   try {
     const job = await Job.findById(req.params.id)
-      .populate("employer", "companyName companyLogo")
-      .populate("outlet", "outletName location outletImage")
+      .populate("company", "companyLegalName companyLogo")
+      .populate("outlet", "outletName outletAddress outletImage")
+      .populate({
+        path: "shifts",
+        model: "Shift",
+        select: "startTime startMeridian endTime endMeridian vacancy standbyVacancy duration breakHours breakType rateType payRate totalWage",
+      })
       .lean();
 
     if (!job) return res.status(404).json({ message: "Job not found" });
 
-    // Calculate total vacancy & standby candidates
-    let totalVacancyCandidates = 0;
-    let totalStandbyCandidates = 0;
-    let totalShifts = 0;
-    
-    // Extracting shift data outside for better integration
-    const shiftsArray = [];
+    // Initialize shift summary
+    let totalVacancy = 0;
+    let totalStandby = 0;
+    let totalShifts = job.shifts.length;
 
-    job.dates.forEach(date => {
-      date.shifts.forEach(shift => {
-        totalVacancyCandidates += shift.vacancy;
-        totalStandbyCandidates += shift.standbyVacancy;
-        totalShifts += 1;
+    // Extracting shift data for easier frontend integration
+    const shiftsArray = job.shifts.map((shift) => {
+      totalVacancy += shift.vacancy;
+      totalStandby += shift.standbyVacancy;
 
-        shiftsArray.push({
-          shiftId: shift._id,
-          date: new Date(date.date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' }),
-          startTime: shift.startTime,
-          endTime: shift.endTime,
-          vacancyFilled: `${shift.filledVacancies}/${shift.vacancy}`,
-          standbyFilled: `${shift.standbyFilled}/${shift.standbyVacancy}`,
-          totalDuration: `${shift.duration} Hrs`,
-          rateType: shift.rateType,
-          breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
-          breakType: shift.breakType,
-          rate: `$${shift.payRate}/hr`,
-          totalWage: `$${shift.totalWage}`,
-          jobStatus: job.jobStatus,
-        });
-      });
+      return {
+        shiftId: shift._id,
+        startTime: `${shift.startTime} ${shift.startMeridian}`,
+        endTime: `${shift.endTime} ${shift.endMeridian}`,
+        totalDuration: `${shift.duration} Hrs`,
+        breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
+        breakType: shift.breakType,
+        rateType: shift.rateType,
+        vacancy: shift.vacancy,
+        standbyVacancy: shift.standbyVacancy,
+        payRate: `$${shift.payRate}/hr`,
+        totalWage: `$${shift.totalWage}`,
+      };
     });
 
     // Shift Summary
     const shiftSummary = {
-      totalVacancyCandidates,
-      totalStandbyCandidates,
+      totalVacancy,
+      totalStandby,
       totalShifts,
     };
 
@@ -201,29 +187,32 @@ exports.getJobById = async (req, res) => {
       { condition: "> 24 Hours", penalty: "$5 Penalty" },
       { condition: "> 48 Hours", penalty: "$10 Penalty" },
       { condition: "> 72 Hours", penalty: "$15 Penalty" },
-      { condition: "No Show - During Shift", penalty: "$50 Penalty" }
+      { condition: "No Show - During Shift", penalty: "$50 Penalty" },
     ];
 
     // Construct job response
     const jobDetails = {
       jobId: job._id,
       jobName: job.jobName,
+      jobIcon: job.jobIcon || "/static/jobIcon.png",
+      industry: job.industry,
       employer: {
-        name: job.employer?.companyName || "N/A",
-        logo: job.employer?.companyLogo || null,
+        name: job.company?.companyLegalName || "Unknown",
+        logo: job.company?.companyLogo || "/static/companyLogo.png",
       },
       outlet: {
-        name: job.outlet?.outletName || "N/A",
-        location: job.outlet?.location || "Unknown",
-        logo: job.outlet?.outletImage || null,
+        name: job.outlet?.outletName || "Unknown",
+        location: job.outlet?.outletAddress || "Not Available",
+        logo: job.outlet?.outletImage || "/static/Job.png",
       },
-      postedDate: new Date(job.postedDate).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' }),
+      date: moment(job.date).format("DD MMM, YY"),
       location: job.location,
-      jobStatus: job.jobStatus,
+      shortAddress: job.shortAddress || "Not Available",
+      jobScope: job.jobScope || [],
+      jobRequirements: job.jobRequirements || [],
       shiftSummary, // Summary of shifts
-      shifts: shiftsArray, // ✅ Shifts are moved outside for easier access
-      jobScope: job.requirements?.jobScopeDescription || "Not provided",
-      jobRequirements: job.requirements?.jobRequirements || "Not provided",
+      shifts: shiftsArray, // ✅ Flattened shift data for frontend ease
+      totalWage: `$${shiftsArray.reduce((acc, shift) => acc + parseFloat(shift.totalWage.replace("$", "")), 0)}`,
       shiftCancellationPenalties, // Static penalties
     };
 
@@ -236,120 +225,228 @@ exports.getJobById = async (req, res) => {
 
 // ✅ Create a new job with proper shift details
 exports.createJob = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    const { jobName, employerId, outletId, dates, location, requirements, jobStatus } = req.body;
-
-    // Validate employer & outlet
-    const employer = await Employer.findById(employerId);
-    if (!employer) return res.status(404).json({ message: "Employer not found" });
-
-    const outlet = await Outlet.findById(outletId);
-    if (!outlet) return res.status(404).json({ message: "Outlet not found" });
-
-    // Process shifts properly
-    const processedDates = dates.map((dateObj) => ({
-      date: dateObj.date,
-      shifts: dateObj.shifts.map((shift) => ({
-        startTime: shift.startTime,
-        endTime: shift.endTime,
-        vacancy: shift.vacancy,
-        standbyVacancy: shift.standbyVacancy,
-        filledVacancies: 0,
-        standbyFilled: 0,
-        duration: shift.duration,
-        breakHours: shift.breakHours,
-        breakType: shift.breakType,
-        payRate: shift.payRate,
-        rateType: shift.rateType,
-        totalWage: shift.rateType === "Hourly rate" ? shift.payRate * shift.duration : shift.payRate,
-      })),
-    }));
-
-    const job = new Job({
+    const {
       jobName,
-      employer: employerId,
-      outlet: outletId,
-      dates: processedDates,
+      employerId,
+      outletId,
+      date,
       location,
-      requirements,
-      jobStatus,
+      industry,
+      jobScope,
+      jobRequirements,
+      shifts,
+    } = req.body;
+
+    // Validate Employer
+    const employer = await Employer.findById(employerId).session(session);
+    if (!employer) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: "Employer not found" });
+    }
+
+    // Validate Outlet
+    const outlet = await Outlet.findById(outletId).session(session);
+    if (!outlet) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: "Outlet not found" });
+    }
+
+    // Create Job Entry
+    const newJob = new Job({
+      jobIcon: "/static/jobIcon.png", // Default Icon
+      jobName,
+      company: employerId,
+      outlet: outletId,
+      date: new Date(date),
+      location,
+      shortAddress: outlet.outletAddress, // Pull address from outlet
+      industry,
+      outletImage: outlet.outletImage || "/static/outletImage.png",
+      jobScope,
+      jobRequirements,
     });
 
-    await job.save();
-    res.status(201).json({ success: true, job });
+    // Save Job
+    const savedJob = await newJob.save({ session });
+
+    // Handle Shifts if provided
+    let createdShifts = [];
+    if (shifts && shifts.length > 0) {
+      createdShifts = await Shift.insertMany(
+        shifts.map((shift) => ({
+          job: savedJob._id,
+          startTime: shift.startTime,
+          startMeridian: shift.startMeridian,
+          endTime: shift.endTime,
+          endMeridian: shift.endMeridian,
+          vacancy: shift.vacancy,
+          standbyVacancy: shift.standbyVacancy,
+          duration: shift.duration,
+          breakHours: shift.breakHours,
+          breakType: shift.breakType,
+          rateType: shift.rateType,
+          payRate: shift.payRate,
+          totalWage: shift.rateType === "Hourly rate" ? shift.payRate * shift.duration : shift.payRate,
+        })),
+        { session }
+      );
+
+      // Associate shifts with the job
+      savedJob.shifts = createdShifts.map((shift) => shift._id);
+      await savedJob.save({ session });
+    }
+
+    // Commit Transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(201).json({
+      success: true,
+      message: "Job created successfully",
+      job: savedJob,
+      shifts: createdShifts,
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Error creating job:", error);
+    return res.status(500).json({ message: "Internal server error", error });
   }
 };
 
 // ✅ Update a job properly
 exports.updateJob = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    const { jobName, employerId, outletId, dates, location, requirements, jobStatus } = req.body;
+    const { jobName, employerId, outletId, date, location, industry, jobScope, jobRequirements, shifts } = req.body;
 
-    // Validate employer and outlet
-    const employer = await Employer.findById(employerId);
-    if (!employer) return res.status(404).json({ message: "Employer not found" });
+    // Validate employer
+    const employer = await Employer.findById(employerId).session(session);
+    if (!employer) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: "Employer not found" });
+    }
 
-    const outlet = await Outlet.findById(outletId);
-    if (!outlet) return res.status(404).json({ message: "Outlet not found" });
+    // Validate outlet
+    const outlet = await Outlet.findById(outletId).session(session);
+    if (!outlet) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: "Outlet not found" });
+    }
 
-    // Process shifts correctly
-    const processedDates = dates.map((dateObj) => ({
-      date: dateObj.date,
-      shifts: dateObj.shifts.map((shift) => ({
+    // Find the existing job
+    const job = await Job.findById(req.params.id).session(session);
+    if (!job) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: "Job not found" });
+    }
+
+    // Remove existing shifts & create new shifts
+    await Shift.deleteMany({ job: job._id }).session(session);
+
+    const createdShifts = await Shift.insertMany(
+      shifts.map((shift) => ({
+        job: job._id,
         startTime: shift.startTime,
+        startMeridian: shift.startMeridian,
         endTime: shift.endTime,
+        endMeridian: shift.endMeridian,
         vacancy: shift.vacancy,
         standbyVacancy: shift.standbyVacancy,
-        filledVacancies: shift.filledVacancies || 0,
-        standbyFilled: shift.standbyFilled || 0,
         duration: shift.duration,
         breakHours: shift.breakHours,
         breakType: shift.breakType,
-        payRate: shift.payRate,
         rateType: shift.rateType,
+        payRate: shift.payRate,
         totalWage: shift.rateType === "Hourly rate" ? shift.payRate * shift.duration : shift.payRate,
       })),
-    }));
-
-    // Update job
-    const updatedJob = await Job.findByIdAndUpdate(
-      req.params.id,
-      { jobName, employer: employerId, outlet: outletId, dates: processedDates, location, requirements, jobStatus },
-      { new: true }
+      { session }
     );
 
-    if (!updatedJob) return res.status(404).json({ message: "Job not found" });
+    // Update job details
+    job.jobName = jobName;
+    job.company = employerId;
+    job.outlet = outletId;
+    job.date = new Date(date);
+    job.location = location;
+    job.industry = industry;
+    job.jobScope = jobScope;
+    job.jobRequirements = jobRequirements;
+    job.shifts = createdShifts.map((shift) => shift._id);
 
-    res.status(200).json({ success: true, updatedJob });
+    await job.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(200).json({ success: true, message: "Job updated successfully", job, shifts: createdShifts });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Error updating job:", error);
+    return res.status(500).json({ message: "Internal server error", error });
   }
 };
+
 
 // ✅ Duplicate Job API
 exports.duplicateJob = async (req, res) => {
   try {
-    const job = await Job.findById(req.params.id);
+    const job = await Job.findById(req.params.id).populate("shifts");
     if (!job) return res.status(404).json({ message: "Job not found" });
 
+    // Create a copy of the job
     const newJob = new Job({
+      jobIcon: job.jobIcon,
       jobName: `${job.jobName} (Copy)`,
-      employer: job.employer,
+      company: job.company,
       outlet: job.outlet,
-      dates: job.dates,
+      date: job.date,
       location: job.location,
-      requirements: job.requirements,
-      jobStatus: "Upcoming",
+      industry: job.industry,
+      outletImage: job.outletImage,
+      jobScope: job.jobScope,
+      jobRequirements: job.jobRequirements,
     });
 
-    await newJob.save();
-    res.status(201).json({ success: true, job: newJob });
+    // Save duplicated job
+    const savedJob = await newJob.save();
+
+    // Duplicate shifts
+    const duplicatedShifts = await Shift.insertMany(
+      job.shifts.map((shift) => ({
+        job: savedJob._id,
+        startTime: shift.startTime,
+        startMeridian: shift.startMeridian,
+        endTime: shift.endTime,
+        endMeridian: shift.endMeridian,
+        vacancy: shift.vacancy,
+        standbyVacancy: shift.standbyVacancy,
+        duration: shift.duration,
+        breakHours: shift.breakHours,
+        breakType: shift.breakType,
+        rateType: shift.rateType,
+        payRate: shift.payRate,
+        totalWage: shift.totalWage,
+      }))
+    );
+
+    savedJob.shifts = duplicatedShifts.map((shift) => shift._id);
+    await savedJob.save();
+
+    return res.status(201).json({ success: true, message: "Job duplicated successfully", job: savedJob });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Error duplicating job:", error);
+    return res.status(500).json({ message: "Internal server error", error });
   }
 };
+
 
 // ✅ Change Job Status (Activate, Deactivate, Cancel)
 exports.changeJobStatus = async (req, res) => {
@@ -362,11 +459,13 @@ exports.changeJobStatus = async (req, res) => {
     const job = await Job.findByIdAndUpdate(req.params.id, { jobStatus: status }, { new: true });
     if (!job) return res.status(404).json({ message: "Job not found" });
 
-    res.status(200).json({ success: true, job });
+    res.status(200).json({ success: true, message: `Job status updated to ${status}`, job });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Error updating job status:", error);
+    res.status(500).json({ message: "Internal server error", error });
   }
 };
+
 
 // ✅ Cancel Job API
 exports.cancelJob = async (req, res) => {
@@ -377,9 +476,11 @@ exports.cancelJob = async (req, res) => {
 
     res.status(200).json({ success: true, message: "Job Cancelled", job });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Error cancelling job:", error);
+    res.status(500).json({ message: "Internal server error", error });
   }
 };
+
 
 // ✅ Deactivate Job API
 exports.deactivateJob = async (req, res) => {
@@ -390,18 +491,38 @@ exports.deactivateJob = async (req, res) => {
 
     res.status(200).json({ success: true, message: "Job Deactivated", job });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Error deactivating job:", error);
+    res.status(500).json({ message: "Internal server error", error });
   }
 };
 
+
 // ✅ Delete Job API
 exports.deleteJob = async (req, res) => {
-  try {
-    const job = await Job.findByIdAndDelete(req.params.id);
-    if (!job) return res.status(404).json({ message: "Job not found" });
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-    res.status(200).json({ success: true, message: "Job deleted successfully" });
+  try {
+    const job = await Job.findById(req.params.id).session(session);
+    if (!job) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: "Job not found" });
+    }
+
+    // Remove linked shifts
+    await Shift.deleteMany({ job: job._id }).session(session);
+
+    // Delete the job
+    await Job.findByIdAndDelete(req.params.id).session(session);
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(200).json({ success: true, message: "Job and associated shifts deleted successfully" });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Error deleting job:", error);
+    return res.status(500).json({ message: "Internal server error", error });
   }
 };

@@ -1,144 +1,178 @@
-const User = require('../models/User');
-const Job = require('../models/Job');
-const Application = require('../models/Application');
-const Payment = require('../models/Payment');
+const User = require("../models/User");
+const Job = require("../models/Job");
+const Application = require("../models/Application");
+const Payment = require("../models/Payment");
+const mongoose = require("mongoose");
 
-// Dashboard Overview
+// 🚀 **Get Dashboard Overview**
 exports.getDashboardOverview = async (req, res) => {
   try {
     const totalJobsPosted = await Job.countDocuments();
-    const activatedHeroes = await User.find({ isActive: true }).countDocuments();
-    const vacancies = await Job.find({ vacancies: { $gt: 0 } }).countDocuments();
-    const pendingVerifications = await User.find({ isVerified: false }).countDocuments();
-    const pendingPayments = await Payment.find({ status: 'pending' }).countDocuments();
+    const activatedUsers = await User.countDocuments({ role: "USER" });
+    const verifiedUsers = await User.countDocuments({ profileCompleted: true });
+    const pendingVerifications = await User.countDocuments({ profileCompleted: false });
+    const pendingPayments = await Payment.countDocuments({ status: "pending" });
+
+    // ✅ Get total paid amount
     const totalAmountPaid = await Payment.aggregate([
-      { $match: { status: 'completed' } },
-      { $group: { _id: null, totalPaid: { $sum: '$amount' } } },
+      { $match: { status: "completed" } },
+      { $group: { _id: null, totalPaid: { $sum: "$amount" } } },
     ]);
-    const noShowCount = await Application.find({ status: 'no-show' }).countDocuments();
-    const verifiedHeroes = await User.find({ isVerified: true }).countDocuments();
+
+    // ✅ Get total no-show applications
+    const noShowCount = await Application.countDocuments({ status: "Cancelled" });
 
     res.status(200).json({
       totalJobsPosted,
-      activatedHeroes,
-      vacancies,
+      activatedUsers,
+      verifiedUsers,
       pendingVerifications,
       pendingPayments,
       totalAmountPaid: totalAmountPaid[0]?.totalPaid || 0,
       noShowCount,
-      verifiedHeroes,
     });
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching dashboard overview' });
+    console.error("Error fetching dashboard overview:", error);
+    res.status(500).json({ error: "Error fetching dashboard overview" });
   }
 };
 
-// Job Posting Stats
+// 🚀 **Get Job Posting Stats**
 exports.getJobPostingStats = async (req, res) => {
   const { month } = req.query;
   try {
     const jobStats = await Job.aggregate([
-      { $project: { month: { $month: '$createdAt' } } },
+      { $project: { month: { $month: "$createdAt" } } },
       { $match: { month: parseInt(month, 10) } },
-      { $group: { _id: '$month', count: { $sum: 1 } } },
+      { $group: { _id: "$month", count: { $sum: 1 } } },
     ]);
 
     res.status(200).json(jobStats);
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching job posting stats' });
+    console.error("Error fetching job posting stats:", error);
+    res.status(500).json({ error: "Error fetching job posting stats" });
   }
 };
 
-// Revenue Stats
+// 🚀 **Get Revenue Stats**
 exports.getRevenueStats = async (req, res) => {
   const { start_date, end_date } = req.query;
   try {
     const revenue = await Payment.aggregate([
       {
         $match: {
-          date: {
+          createdAt: {
             $gte: new Date(start_date),
             $lte: new Date(end_date),
           },
         },
       },
-      { $group: { _id: { $month: '$date' }, total: { $sum: '$amount' } } },
+      { $group: { _id: { $month: "$createdAt" }, total: { $sum: "$amount" } } },
     ]);
 
     res.status(200).json({ revenue });
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching revenue stats' });
+    console.error("Error fetching revenue stats:", error);
+    res.status(500).json({ error: "Error fetching revenue stats" });
   }
 };
 
-// Posted Jobs List
+// 🚀 **Get Posted Jobs List**
 exports.getPostedJobsList = async (req, res) => {
   try {
-    const jobs = await Job.find().select('title applications');
+    const jobs = await Job.find().select("jobName company outlet").populate("company", "companyLegalName").populate("outlet", "outletName");
     res.status(200).json(jobs);
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching posted jobs list' });
+    console.error("Error fetching posted jobs list:", error);
+    res.status(500).json({ error: "Error fetching posted jobs list" });
   }
 };
 
-// Application Details
+// 🚀 **Get Application Details**
 exports.getApplicationDetails = async (req, res) => {
   const { job_id } = req.query;
   try {
-    const applications = await Application.find({ job: job_id });
+    if (!mongoose.Types.ObjectId.isValid(job_id)) {
+      return res.status(400).json({ message: "Invalid Job ID" });
+    }
+
+    const applications = await Application.find({ jobId: job_id })
+      .populate("userId", "fullName phoneNumber profilePicture")
+      .populate("jobId", "jobName company")
+      .populate("shiftId", "startTime endTime");
+
     res.status(200).json(applications);
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching application details' });
+    console.error("Error fetching application details:", error);
+    res.status(500).json({ error: "Error fetching application details" });
   }
 };
 
-// New Applications
+// 🚀 **Get New Applications**
 exports.getNewApplications = async (req, res) => {
   try {
-    const applications = await Application.find({ status: 'new' });
+    const applications = await Application.find({ status: "Applied" })
+      .populate("userId", "fullName phoneNumber profilePicture")
+      .populate("jobId", "jobName company");
+
     res.status(200).json(applications);
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching new applications' });
+    console.error("Error fetching new applications:", error);
+    res.status(500).json({ error: "Error fetching new applications" });
   }
 };
 
-// Pending Payments
+// 🚀 **Get Pending Payments**
 exports.getPendingPayments = async (req, res) => {
   try {
-    const payments = await Payment.find({ status: 'pending' });
+    const payments = await Payment.find({ status: "pending" })
+      .populate("userId", "fullName phoneNumber")
+      .populate("jobId", "jobName");
+
     res.status(200).json(payments);
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching pending payments' });
+    console.error("Error fetching pending payments:", error);
+    res.status(500).json({ error: "Error fetching pending payments" });
   }
 };
 
-// Verification Status
+// 🚀 **Get Verification Status**
 exports.getVerificationStatus = async (req, res) => {
   try {
-    const users = await User.find({ isVerified: false });
+    const users = await User.find({ profileCompleted: false }).select("fullName phoneNumber email profilePicture");
     res.status(200).json(users);
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching verification status' });
+    console.error("Error fetching verification status:", error);
+    res.status(500).json({ error: "Error fetching verification status" });
   }
 };
 
-// No Show Count
+// 🚀 **Get No-Show Count**
 exports.getNoShowCount = async (req, res) => {
   try {
-    const noShowCount = await Application.find({ status: 'no-show' }).countDocuments();
+    const noShowCount = await Application.countDocuments({ status: "Cancelled" });
     res.status(200).json({ noShowCount });
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching no-show count' });
+    console.error("Error fetching no-show count:", error);
+    res.status(500).json({ error: "Error fetching no-show count" });
   }
 };
 
-// User Registration Details
+// 🚀 **Get Registered User Details**
 exports.getRegisteredUsers = async (req, res) => {
   const { user_id } = req.query;
   try {
-    const user = await User.findById(user_id);
+    if (!mongoose.Types.ObjectId.isValid(user_id)) {
+      return res.status(400).json({ message: "Invalid User ID" });
+    }
+
+    const user = await User.findById(user_id)
+      .select("fullName email phoneNumber profilePicture employmentStatus createdAt")
+      .populate("profileId", "dob gender nricNumber finNumber studentIdNumber schoolName");
+
     res.status(200).json(user);
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching user registration details' });
+    console.error("Error fetching user registration details:", error);
+    res.status(500).json({ error: "Error fetching user registration details" });
   }
 };

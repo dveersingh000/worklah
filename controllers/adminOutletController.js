@@ -1,6 +1,7 @@
 const Outlet = require("../models/Outlet");
 const Job = require("../models/Job");
 const Application = require("../models/Application");
+const Shift = require("../models/Shift");
 const mongoose = require("mongoose");
 const moment = require("moment");
 
@@ -14,43 +15,41 @@ exports.getOutletAttendance = async (req, res) => {
     }
 
     // ✅ Fetch Outlet Details
-    const outlet = await Outlet.findById(id).populate("employer", "companyName").lean();
+    const outlet = await Outlet.findById(id).populate("employer", "companyLegalName").lean();
     if (!outlet) return res.status(404).json({ message: "Outlet not found" });
 
     // ✅ Fetch Jobs associated with this outlet
-    const jobs = await Job.find({ outlet: id }).populate("employer", "companyName").lean();
-
-    // ✅ Fetch all applications related to these jobs
+    const jobs = await Job.find({ outlet: id }).populate("company", "companyLegalName").lean();
     const jobIds = jobs.map(job => job._id);
+
+    // ✅ Fetch related Shifts
+    const shifts = await Shift.find({ job: { $in: jobIds } }).lean();
+
+    // ✅ Fetch Applications related to these jobs
     const applications = await Application.find({ jobId: { $in: jobIds } }).lean();
 
-    // ✅ Calculate Attendance Metrics
+    // ✅ Attendance Metrics Calculation
     let totalJobsPosted = jobs.length;
     let shiftsFullyAttended = 0;
     let shiftsPartiallyAttended = 0;
     let shiftsLeastAttended = 0;
     let noShowRate = 0;
     let totalAttendance = 0;
-    let totalShifts = 0;
+    let totalShifts = shifts.length;
     let standbyEffectiveness = 0;
 
-    jobs.forEach(job => {
-      job.dates.forEach(date => {
-        date.shifts.forEach(shift => {
-          totalShifts++;
-          const filledVacancy = shift.filledVacancies || 0;
-          const totalVacancy = shift.vacancy || 1; // Prevent division by zero
+    shifts.forEach(shift => {
+      const filledVacancy = shift.appliedShifts?.length || 0;
+      const totalVacancy = shift.vacancy || 1; // Prevent division by zero
 
-          const attendanceRate = (filledVacancy / totalVacancy) * 100;
-          totalAttendance += attendanceRate;
+      const attendanceRate = (filledVacancy / totalVacancy) * 100;
+      totalAttendance += attendanceRate;
 
-          if (attendanceRate >= 80) shiftsFullyAttended++;
-          else if (attendanceRate >= 50) shiftsPartiallyAttended++;
-          else shiftsLeastAttended++;
+      if (attendanceRate >= 80) shiftsFullyAttended++;
+      else if (attendanceRate >= 50) shiftsPartiallyAttended++;
+      else shiftsLeastAttended++;
 
-          if (shift.standbyFilled > 0) standbyEffectiveness++;
-        });
-      });
+      if (shift.standbyVacancy > 0) standbyEffectiveness++;
     });
 
     const overallAttendanceRate = totalShifts > 0 ? (totalAttendance / totalShifts).toFixed(2) : 0;
@@ -79,25 +78,25 @@ exports.getOutletAttendance = async (req, res) => {
     const jobAttendanceTable = jobs.map(job => ({
       jobName: job.jobName,
       jobStatus: job.jobStatus,
-      shifts: job.dates.flatMap(date =>
-        date.shifts.map(shift => ({
+      shifts: shifts
+        .filter(shift => shift.job.toString() === job._id.toString())
+        .map(shift => ({
           shiftTime: `${shift.startTime} - ${shift.endTime}`,
-          vacancyFilled: `${shift.filledVacancies}/${shift.vacancy}`,
-          standbyFilled: `${shift.standbyFilled}/${shift.standbyVacancy}`,
+          vacancyFilled: `${shift.appliedShifts?.length || 0}/${shift.vacancy}`,
+          standbyFilled: `${shift.standbyVacancy}`,
           totalApplied: applications.filter(app => app.jobId.toString() === job._id.toString()).length,
-          date: moment(date.date).format("DD MMM, YYYY")
+          date: moment(job.date).format("DD MMM, YYYY")
         }))
-      )
     }));
 
     res.status(200).json({
       success: true,
       outlet: {
         name: outlet.outletName,
-        address: outlet.location,
+        address: outlet.outletAddress || "Unknown",
         contact: "+65 1234 3543", // Dummy value
         email: "dominos@gmail.com", // Dummy value
-        employer: outlet.employer.companyName
+        employer: outlet.employer?.companyLegalName || "N/A",
       },
       attendanceMetrics: {
         totalJobsPosted,
