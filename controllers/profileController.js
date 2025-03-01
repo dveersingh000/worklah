@@ -342,29 +342,29 @@ exports.getProfileStats = async (req, res) => {
       ]);
 
       // Fetch Recent Past Jobs
-      const recentPastJobs = await Application.find({ userId })
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .populate({
-          path: "jobId",
-          select: "jobName subtitle subtitleIcon location employer dates",
-          populate: {
-            path: "employer",
-            select: "companyName",
-          },
-        });
+      // const recentPastJobs = await Application.find({ userId })
+      //   .sort({ createdAt: -1 })
+      //   .limit(5)
+      //   .populate({
+      //     path: "jobId",
+      //     select: "jobName subtitle subtitleIcon location employer dates",
+      //     populate: {
+      //       path: "employer",
+      //       select: "companyName",
+      //     },
+      //   });
 
       // Format Recent Past Jobs
-      const formattedPastJobs = recentPastJobs.map((job) => ({
-        jobName: job.jobId?.jobName || "Unknown",
-        subtitle: job.jobId?.subtitle || "Unknown",
-        subtitleIcon: job.jobId?.subtitleIcon || "/static/image.png",
-        location: job.jobId?.location || "Unknown Location",
-        duration: `${job.jobId?.dates?.[0]?.shifts?.[0]?.duration || "N/A"} hrs`,
-        status: job.status || "N/A",
-        companyName: job.jobId?.employer?.companyName || "Unknown Employer",
-        date: job.createdAt,
-      }));
+      // const formattedPastJobs = recentPastJobs.map((job) => ({
+      //   jobName: job.jobId?.jobName || "Unknown",
+      //   subtitle: job.jobId?.subtitle || "Unknown",
+      //   subtitleIcon: job.jobId?.subtitleIcon || "/static/image.png",
+      //   location: job.jobId?.location || "Unknown Location",
+      //   duration: `${job.jobId?.dates?.[0]?.shifts?.[0]?.duration || "N/A"} hrs`,
+      //   status: job.status || "N/A",
+      //   companyName: job.jobId?.employer?.companyName || "Unknown Employer",
+      //   date: job.createdAt,
+      // }));
 
       // Calculate Demerit Points (e.g., $5 per No-Show Job)
       const demeritPoints = noShowJobs * 5;
@@ -391,7 +391,7 @@ exports.getProfileStats = async (req, res) => {
           totalHoursWorked: totalHoursWorked[0]?.totalHours || 0,
         },
         demeritPoints: demeritPoints || 0,
-        recentPastJobs: formattedPastJobs,
+        // recentPastJobs: formattedPastJobs,
       });
     }
 

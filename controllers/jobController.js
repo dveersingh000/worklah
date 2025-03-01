@@ -364,75 +364,88 @@ exports.applyForJob = async (req, res) => {
   try {
     const { userId, jobId, shiftId, date, isStandby } = req.body;
 
-    // Check if user exists and profile is completed
+    // ✅ Validate User
     const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(404).json({ error: "User not found" });
 
     if (!user.profileCompleted) {
-      return res.status(400).json({ error: 'Profile not completed. Please complete your profile first.' });
+      return res.status(400).json({
+        error: "Profile not completed. Please complete your profile first.",
+      });
     }
 
-    // Check if job exists
-    const job = await Job.findById(jobId);
-    if (!job) return res.status(404).json({ error: 'Job not found' });
+    // ✅ Validate Job
+    const job = await Job.findById(jobId).populate("shifts");
+    if (!job) return res.status(404).json({ error: "Job not found" });
 
-    // Find the specific date
-    const jobDate = job.dates.find(d => {
-      const storedDate = new Date(d.date).toISOString().split('T')[0];
-      return storedDate === date;
-    });
+    // ✅ Validate Shift
+    const shift = await Shift.findById(shiftId);
+    if (!shift) return res.status(404).json({ error: "Shift not found" });
 
-    if (!jobDate) return res.status(404).json({ error: 'Job date not found' });
+    // ✅ Ensure shift belongs to this job
+    // if (!job.shifts.includes(shiftId)) {
+    //   return res.status(400).json({ error: "Shift does not belong to this job" });
+    // }
 
-    // Find the specific shift within the found date
-    const shift = jobDate.shifts.find(shift => shift._id.toString() === shiftId);
-    if (!shift) return res.status(404).json({ error: 'Shift not found' });
-
-    // Validate vacancies
-    if (!isStandby && shift.filledVacancies < shift.vacancy) {
-      shift.filledVacancies += 1;
-    } else if (isStandby && shift.standbyFilled < shift.standbyVacancy) {
-      shift.standbyFilled += 1;
+    // ✅ Validate Vacancy & Standby Logic
+    if (!isStandby) {
+      // Apply for a normal vacancy
+      if (shift.vacancy > shift.appliedShifts.length) {
+        shift.appliedShifts.push(userId);
+      } else {
+        return res.status(400).json({ error: "No vacancies available" });
+      }
     } else {
-      return res.status(400).json({ error: 'No vacancies available for this shift' });
+      // Apply for Standby ONLY if the shift is fully booked
+      if (shift.appliedShifts.length >= shift.vacancy && shift.standbyVacancy > 0) {
+        shift.standbyVacancy -= 1; // Reduce standby slots
+      } else {
+        return res.status(400).json({ error: "Standby not available for this shift" });
+      }
     }
 
-    // Save the job application
+    // ✅ Save Shift Changes
+    await shift.save();
+
+    // ✅ Create Application Entry
     const application = new Application({
       userId,
       jobId,
       shiftId,
       date,
       isStandby,
-      status: 'Ongoing',
-      appliedStatus: 'Applied',
+      status: "Upcoming",
+      appliedStatus: "Applied",
     });
+
     await application.save();
 
-    // Add application reference to the user's applications array
+    // ✅ Link Application to User
     user.applications.push(application._id);
     await user.save();
 
-    // Save updated job
-    await job.save();
-
-    // Create a notification for the user
+    // ✅ Create Notification for User
     const notification = new Notification({
       userId,
       jobId,
-      type: 'Job',
-      title: 'Job Application Successful',
-      message: `You have successfully applied for the job "${job.jobName}".`,
+      type: "Job",
+      title: "Job Application Successful",
+      message: `You have successfully applied for the shift on ${date} (${shift.startTime} - ${shift.endTime}).`,
       isRead: false,
     });
+
     await notification.save();
 
-    res.status(200).json({ message: 'Job application successful', application });
+    res.status(200).json({ message: "Shift booking successful", application });
   } catch (error) {
-    console.error('Error in applyForJob:', error.message);
-    res.status(500).json({ error: 'Failed to apply for the job', details: error.message });
+    console.error("Error in applyForJob:", error.message);
+    res.status(500).json({
+      error: "Failed to apply for the job",
+      details: error.message,
+    });
   }
 };
+
 
 
 exports.cancelApplication = async (req, res) => {
@@ -500,152 +513,94 @@ exports.cancelApplication = async (req, res) => {
   }
 };
 
-exports.getOngoingJobs = async (req, res) => {
-  try {
-    const userId = req.user._id;
-
-    // Fetch applications with job and shift details
-    const applications = await Application.find({ userId, status: 'Ongoing' })
-    .populate({
-      path: 'jobId',
-      select: 'jobName jobIcon location subtitle subtitleIcon outlet',
-      populate: { path: 'outlet', select: 'outletImage' }, 
-    })
-      .lean(); 
-
-    // Map through applications to construct ongoingJobs array
-    const ongoingJobs = applications.map((app) => {
-      // Find the shift from the job's dates using shiftId
-      const job = app.jobId;
-      let shiftDetails = null;
-
-      // Iterate through dates to find the matching shift
-      // for (const date of job.dates) {
-      //   shiftDetails = date.shifts.find((shift) => shift._id.equals(app.shiftId));
-      //   if (shiftDetails) break;
-      // }
-
-      // If no shift found, skip this application
-      if (!shiftDetails) return null;
-
-      const currentDate = moment().startOf('day');
-      const jobDate = moment(app.date).startOf('day');
-      const daysRemaining = jobDate.diff(currentDate, 'days');
-
-      return {
-        applicationId: app._id,
-        jobName: job.jobName,
-        jobIcon: job.jobIcon,
-        subtitle: job.subtitle,
-        subtitleIcon: job.subtitleIcon,
-        location: job.location,
-        outletImage: job.outlet?.outletImage,
-        salary: shiftDetails.totalWage,
-        duration: `${shiftDetails.duration || 0} hrs`,
-        ratePerHour: `$${shiftDetails.payRate || 0}/hr`,
-        jobStatus: 'Ongoing',
-        appliedAt: app.appliedAt,
-        daysRemaining: daysRemaining >= 0 ? daysRemaining : 0, // Ensure it's not negative
-      };
-    });
-
-    // Filter out any null entries in case of unmatched shifts
-    const filteredJobs = ongoingJobs.filter((job) => job !== null);
-
-    res.status(200).json({ success: true, jobs: filteredJobs });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
 exports.getJobDetails = async (req, res) => {
   try {
     const { applicationId } = req.params;
 
-    // Find the application by ID
+    // ✅ Fetch Application Details with Job & Shift
     const application = await Application.findById(applicationId)
       .populate({
         path: 'jobId',
-        select: 'jobName jobIcon location locationCoordinates subtitle subtitleIcon dates outlet requirements employer',
+        select: 'jobName jobIcon location shortAddress industry outlet company jobScope jobRequirements date',
         populate: [
-          { path: 'outlet', select: 'outletName location outletImage outletType' },
-          { path: 'employer', select: 'companyName companyLogo companyImage contractEndDate' },
+          { path: 'outlet', select: 'outletName outletAddress outletImage outletType' },
+          { path: 'company', select: 'companyLegalName companyLogo contractEndDate' },
         ],
       })
-      .lean(); // Convert documents to plain objects for easier manipulation
+      .populate({
+        path: 'shiftId',
+        select: 'startTime startMeridian endTime endMeridian duration payRate totalWage breakHours breakType vacancy standbyVacancy',
+      })
+      .lean();
 
     if (!application) {
       return res.status(404).json({ success: false, error: 'Application not found' });
     }
 
-    // Extract job details
     const job = application.jobId;
-    let shiftDetails = null;
+    const shift = application.shiftId;
 
-    // Find the relevant shift
-    for (const date of job.dates) {
-      if (new Date(date.date).toISOString().split('T')[0] === new Date(application.date).toISOString().split('T')[0]) {
-        shiftDetails = date.shifts.find((shift) => shift._id.toString() === application.shiftId.toString());
-        break;
-      }
+    if (!job || !shift) {
+      return res.status(404).json({ success: false, error: 'Job or Shift not found' });
     }
 
-    if (!shiftDetails) {
-      return res.status(404).json({ success: false, error: 'Shift not found' });
-    }
+    // ✅ Format Job Dates
+    const formattedJobDates = job.date
+      ? moment(job.date).format("DD MMM, YYYY") // Example: "02 Mar, 2025"
+      : null;
 
-    // Construct response
+    // ✅ Construct API Response
     const detailedJob = {
       applicationId: application._id,
       jobId: job._id,
       jobName: job.jobName,
-      jobIcon: job.jobIcon,
-      subtitle: job.subtitle,
-      subtitleIcon: job.subtitleIcon,
+      jobIcon: job.jobIcon || '/static/default-job-icon.png',
+      industry: job.industry,
       location: job.location,
-      locationCoordinates: job.locationCoordinates,
-      salary: shiftDetails.totalWage,
-      duration: `${shiftDetails.duration || 0} hrs`,
-      ratePerHour: `$${shiftDetails.payRate || 0}/hr`,
-      shiftDate: application.date,
-      shiftStartTime: shiftDetails.startTime,
-      shiftEndTime: shiftDetails.endTime,
-      breakType: shiftDetails.breakType,
-      breakDuration: `${shiftDetails.breakHours || 0} hrs`,
-      jobScope: job.requirements?.jobScopeDescription || [],
-      jobRequirements: job.requirements?.jobRequirements || [],
-      penalty: application.penalty || 0, // Include penalty
-      reason: application.reason || '', // Include reason for cancellation
-      shiftsAvailable: job.dates.map((date) => ({
-        date: date.date,
-        shifts: date.shifts.map((shift) => ({
-          _id: shift._id,
-          startTime: shift.startTime,
-          endTime: shift.endTime,
-          payRate: shift.payRate,
-          vacancy: shift.vacancy,
-          standbyVacancy: shift.standbyVacancy,
-          filledVacancies: shift.filledVacancies,
-          standbyFilled: shift.standbyFilled,
-          duration: shift.duration,
-          breakHours: shift.breakHours,
-          totalWage: shift.totalWage,
-        })),
-      })),
+      shortAddress: job.shortAddress,
+      jobScope: job.jobScope,
+      jobRequirements: job.jobRequirements,
+      status: application.status, // ✅ Job Status (Upcoming, Completed, Cancelled, No-Show)
+      jobDates: formattedJobDates,
+
+      // ✅ Employer Details
       employer: {
-        _id: job.employer?._id,
-        name: job.employer?.companyName,
-        companyLogo: job.employer?.companyLogo,
-        contractEndDate: job.employer?.contractEndDate,
+        _id: job.company?._id,
+        name: job.company?.companyLegalName || 'N/A',
+        companyLogo: job.company?.companyLogo || '/static/company-logo.png',
+        contractEndDate: job.company?.contractEndDate || '',
       },
+
+      // ✅ Outlet Details
       outlet: {
         _id: job.outlet?._id,
-        name: job.outlet?.outletName,
-        location: job.outlet?.location,
-        outletImage: job.outlet?.outletImage,
-        outletType: job.outlet?.outletType,
+        name: job.outlet?.outletName || 'N/A',
+        location: job.outlet?.outletAddress || '',
+        outletImage: job.outlet?.outletImage || '/static/outlet.png',
+        outletType: job.outlet?.outletType || '',
       },
+
+      // ✅ Shift Details
+      shift: {
+        startTime: moment(shift.startTime, "HH:mm").format("hh:mm A"),
+        endTime: moment(shift.endTime, "HH:mm").format("hh:mm A"),
+        duration: shift.duration,
+        payRate: `$${shift.payRate}`,
+        totalWage: `$${shift.payRate * shift.duration}`,
+        breakPaid: shift.breakType,
+        breakDuration: `${shift.breakHours} hrs`,
+        vacancy: shift.vacancy,
+        standbyVacancy: shift.standbyVacancy,
+      },
+
+      // ✅ Clock-in & Clock-out Data (for Completed Jobs)
+      clockInTime: application.clockInTime || null,
+      clockOutTime: application.clockOutTime || null,
+      checkInLocation: application.checkInLocation || null,
+
+      // ✅ Penalty & Cancellation Reason (for Cancelled/No-Show Jobs)
+      penalty: application.penalty || 0,
+      reason: application.reason || '',
     };
 
     res.status(200).json({ success: true, job: detailedJob });
@@ -655,6 +610,64 @@ exports.getJobDetails = async (req, res) => {
   }
 };
 
+
+exports.getOngoingJobs = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // ✅ Fetch applications with job and shift details
+    const applications = await Application.find({ userId, status: "Upcoming" })
+      .populate({
+        path: "jobId",
+        select: "jobName jobIcon location outlet",
+        populate: { path: "outlet", select: "outletName outletImage" },
+      })
+      .populate({
+        path: "shiftId",
+        select: "startTime startMeridian endTime endMeridian duration payRate totalWage",
+      })
+      .lean();
+
+    // ✅ Construct Ongoing Jobs Array
+    const ongoingJobs = applications.map((app) => {
+      const job = app.jobId;
+      const shift = app.shiftId;
+
+      if (!job || !shift) return null;
+
+      const currentDate = moment().startOf("day");
+      const jobDate = moment(app.date).startOf("day");
+      const daysRemaining = Math.max(jobDate.diff(currentDate, "days"), 0);
+
+      return {
+        applicationId: app._id,
+        jobName: job.jobName,
+        jobIcon: job.jobIcon,
+        outletName: job.outlet?.outletName || "N/A",
+        outletImage: job.outlet?.outletImage || "/static/Job.png",
+        location: job.location,
+        shiftStartTime: `${shift.startTime} ${shift.startMeridian}`,
+        shiftEndTime: `${shift.endTime} ${shift.endMeridian}`,
+        totalWage: `$${shift.totalWage || 0}`,
+        duration: `${shift.duration || 0} hrs`,
+        ratePerHour: `$${shift.payRate || 0}/hr`,
+        jobStatus: "Upcoming",
+        appliedAt: app.appliedAt,
+        daysRemaining,
+        jobDate: app.date, // Include date for UI grouping
+      };
+    });
+
+    const filteredJobs = ongoingJobs.filter((job) => job !== null);
+
+    res.status(200).json({ success: true, jobs: filteredJobs });
+  } catch (error) {
+    console.error("Error fetching ongoing jobs:", error.message);
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch ongoing jobs." });
+  }
+};
 
 
 exports.getCompletedJobs = async (req, res) => {
@@ -832,7 +845,7 @@ exports.markApplicationCompleted = async (req, res) => {
   }
 };
 
-// exports.getOngoingShifts = async (req, res) => {
+// exports.getOngoingJobs = async (req, res) => {
 //   try {
 //     const ongoingShifts = [
 //       {
@@ -857,7 +870,7 @@ exports.markApplicationCompleted = async (req, res) => {
 // };
 
 
-// exports.getCompletedShifts = async (req, res) => {
+// exports.getCompletedJobs = async (req, res) => {
 //   try {
 //     const completedShifts = [
 //       {
@@ -884,7 +897,7 @@ exports.markApplicationCompleted = async (req, res) => {
 // };
 
 
-// exports.getCanceledShifts = async (req, res) => {
+// exports.getCancelledJobs = async (req, res) => {
 //   try {
 //     const canceledShifts = [
 //       {
