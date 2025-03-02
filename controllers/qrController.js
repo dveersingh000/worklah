@@ -1,47 +1,66 @@
 const QRCode = require("qrcode");
 const Job = require("../models/Job");
 const QRCodeModel = require("../models/QRCode");
-const Application = require("../models/Application");
+const Employer = require("../models/Employer");
 
-// ✅ Admin: Generate QR Code for a Job and Shift
+// ✅ Generate QR Code for an Employer
 exports.generateQRCode = async (req, res) => {
   try {
-    const { jobId, shiftId } = req.body;
+    const { employerId } = req.body;
 
-    // Validate job
-    const job = await Job.findById(jobId)
-      .populate("employer", "companyName")
-      .populate("outlet", "outletName location outletImage");
+    // Validate employer
+    const employer = await Employer.findById(employerId);
+    if (!employer) return res.status(404).json({ message: "Employer not found" });
 
-    if (!job) return res.status(404).json({ message: "Job not found" });
+    // Fetch jobs under the employer
+    const jobs = await Job.find({ employer: employerId }).populate("outlet");
 
-    // Find the shift
-    let selectedShift = null;
-    let jobDate = null;
-    job.dates.forEach(date => {
-      date.shifts.forEach(shift => {
-        if (shift._id.toString() === shiftId) {
-          selectedShift = shift;
-          jobDate = date.date; // Extracting job date
-        }
+    if (jobs.length === 0) return res.status(404).json({ message: "No jobs found for this employer" });
+
+    // Extract outlet info
+    const outlet = jobs[0].outlet;
+
+    // Prepare job roles and shifts
+    let jobRoles = [];
+    let jobIds = [];
+    let shiftIds = [];
+    let validFrom = null;
+    let validUntil = null;
+    let date = null;
+
+    jobs.forEach(job => {
+      jobRoles.push(job.jobName);
+      jobIds.push(job._id.toString());
+      job.dates.forEach(d => {
+        if (!date) date = d.date;
+        d.shifts.forEach(shift => {
+          shiftIds.push(shift._id.toString());
+          if (!validFrom || shift.startTime < validFrom) validFrom = shift.startTime;
+          if (!validUntil || shift.endTime > validUntil) validUntil = shift.endTime;
+        });
       });
     });
 
-    if (!selectedShift) return res.status(404).json({ message: "Shift not found" });
+    // ✅ Convert validFrom and validUntil to proper DateTime format
+    const parsedDate = new Date(date);
+    validFrom = new Date(parsedDate.toISOString().split("T")[0] + "T" + validFrom + ":00Z");
+    validUntil = new Date(parsedDate.toISOString().split("T")[0] + "T" + validUntil + ":00Z");
 
     // Prepare QR Code data
     const qrData = {
-      jobId,
-      shiftId,
-      jobName: job.jobName,
-      jobDate,
-      employer: job.employer.companyName,
+      employerId,
+      employerName: employer.companyName,
+      date: new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
       outlet: {
-        name: job.outlet.outletName,
-        location: job.outlet.location,
-        image: job.outlet.outletImage
+        name: outlet.outletName,
+        location: outlet.location
       },
-      shiftTime: `${selectedShift.startTime} - ${selectedShift.endTime}`,
+      jobRoles,
+      jobIds,
+      totalShifts: shiftIds.length,
+      shiftIds,
+      validFrom,
+      validUntil,
       timestamp: new Date().toISOString(),
     };
 
@@ -50,21 +69,26 @@ exports.generateQRCode = async (req, res) => {
 
     // Store QR Code in Database
     const newQRCode = new QRCodeModel({
-      jobId,
-      shiftId,
+      employerId,
       qrCode: qrCodeURL,
-      validFrom: selectedShift.startTime,
-      validUntil: selectedShift.endTime,
+      validFrom,
+      validUntil,
     });
 
     await newQRCode.save();
 
-    res.status(201).json({ message: "QR Code generated successfully", qrCode: qrCodeURL, qrData });
+    res.status(201).json({
+      message: "QR Code generated successfully",
+      qrCode: qrCodeURL,
+      ...qrData
+    });
+
   } catch (error) {
     console.error("QR Generation Error:", error);
     res.status(500).json({ message: "Server error", error });
   }
 };
+
 
 // ✅ Worker Scans QR to Get Job & Shift Details (No Clock-In Yet)
 exports.scanQRCode = async (req, res) => {

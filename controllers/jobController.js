@@ -7,6 +7,8 @@ const Application = require('../models/Application');
 const Notification = require('../models/Notification');
 const mongoose = require('mongoose');
 const moment = require('moment');
+const path = require("path");
+const multer = require("multer");
 
 // Create a new job with shifts
 exports.createJob = async (req, res) => {
@@ -448,68 +450,115 @@ exports.applyForJob = async (req, res) => {
 
 
 
+// ✅ Configure Multer for Medical Certificate Upload
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/mc-certificates/");
+  },
+  filename: function (req, file, cb) {
+    cb(null, `${Date.now()}_${file.originalname}`);
+  },
+});
+const upload = multer({ storage: storage }).single("medicalCertificate");
+
 exports.cancelApplication = async (req, res) => {
   try {
-    const { applicationId, reason } = req.body;
+    upload(req, res, async function (err) {
+      if (err) {
+        return res.status(500).json({ error: "File upload error", details: err.message });
+      }
 
-    // Find the application
-    const application = await Application.findById(applicationId);
-    if (!application) return res.status(404).json({ error: 'Application not found' });
+      const { applicationId, reason, describedReason } = req.body;
+      let medicalCertificate = req.file ? `/uploads/mc-certificates/${req.file.filename}` : null;
 
-    // Calculate penalty based on the time of cancellation
-    const shiftStartTime = new Date(application.date).getTime();
-    const now = new Date().getTime();
-    const hoursToShift = (shiftStartTime - now) / (1000 * 60 * 60);
+      // ✅ Validate reason selection
+      const validReasons = ["Medical", "Emergency", "Personal Reason", "Transport Issue", "Others"];
+      if (!validReasons.includes(reason)) {
+        return res.status(400).json({ error: "Invalid cancellation reason" });
+      }
 
-    let penalty = 0;
-    if (hoursToShift < 1) {
-      penalty = 50; // No-show penalty
-    } else if (hoursToShift <= 24) {
-      penalty = 15;
-    } else if (hoursToShift <= 48) {
-      penalty = 10;
-    } else if (hoursToShift <= 72) {
-      penalty = 5;
-    }
+      // ✅ Find Application
+      const application = await Application.findById(applicationId);
+      if (!application) return res.status(404).json({ error: "Application not found" });
 
-    // Update application with cancellation details
-    application.status = 'Cancelled';
-    application.appliedStatus = 'Cancelled';
-    application.reason = reason;
-    application.penalty = penalty;
-    application.cancelledAt = new Date();
-    await application.save();
+      // ✅ Find Shift Details
+      const shift = await Shift.findById(application.shiftId);
+      if (!shift) return res.status(404).json({ error: "Shift not found" });
 
-    // Update job and shift vacancies
-    const job = await Job.findById(application.jobId);
-    const jobDate = job.dates.find(d => new Date(d.date).toISOString().split('T')[0] === new Date(application.date).toISOString().split('T')[0]);
-    const shift = jobDate.shifts.find(s => s._id.toString() === application.shiftId.toString());
+      // ✅ Calculate hours before shift start
+      const shiftStart = moment(`${shift.startTime} ${shift.startMeridian}`, "hh:mm A");
+      const now = moment();
+      const hoursBeforeStart = shiftStart.diff(now, "hours");
 
-    if (application.isStandby) {
-      shift.standbyFilled -= 1;
-    } else {
-      shift.filledVacancies -= 1;
-    }
+      // ✅ Penalty Rules (Same as `getCancelledJobs` API)
+      const penaltyRules = [
+        { threshold: 48, penalty: 0, label: "> 48 Hours (No Penalty)" },
+        { threshold: 24, penalty: 5, label: "> 24 Hours (1st Time)" },
+        { threshold: 12, penalty: 10, label: "> 12 Hours (2nd Time)" },
+        { threshold: 6, penalty: 15, label: "> 6 Hours (3rd Time)" },
+        { threshold: 0, penalty: 50, label: "< 6 Hours (Last Minute)" },
+      ];
+      const penaltyData = penaltyRules.find((rule) => hoursBeforeStart >= rule.threshold) || {
+        penalty: 50,
+        label: "Immediate Cancellation",
+      };
 
-    await job.save();
+      // ✅ Update Application with Cancellation Details
+      application.status = "Cancelled";
+      application.appliedStatus = "Cancelled";
+      application.reason = reason;
+      application.describedReason = describedReason || "No additional details provided";
+      application.penalty = penaltyData.penalty;
+      application.cancelledAt = new Date();
+      application.cancellationCount = (application.cancellationCount || 0) + 1; // ✅ Increment cancellation count
 
-    // Notify the user
-    const notification = new Notification({
-      userId: application.userId,
-      jobId: application.jobId,
-      type: 'Job',
-      title: 'Job Application Cancelled',
-      message: `Your application for job ${application.jobId} has been cancelled. Penalty applied: $${penalty}.`,
-    });
-    await notification.save();
+      if (reason === "Medical" && medicalCertificate) {
+        application.medicalCertificate = medicalCertificate;
+      }
 
-    res.status(200).json({
-      message: 'Application cancelled successfully',
-      application,
-      penalty,
+      await application.save();
+
+      // ✅ Update Job & Shift Vacancies
+      const job = await Job.findById(application.jobId);
+      const jobDate = job.dates.find(
+        (d) => moment(d.date).format("YYYY-MM-DD") === moment(application.date).format("YYYY-MM-DD")
+      );
+      const shiftInJob = jobDate.shifts.find((s) => s._id.toString() === application.shiftId.toString());
+
+      if (application.isStandby) {
+        shiftInJob.standbyFilled -= 1;
+      } else {
+        shiftInJob.filledVacancies -= 1;
+      }
+
+      await job.save();
+
+      // ✅ Send Cancellation Notification
+      const notification = new Notification({
+        userId: application.userId,
+        jobId: application.jobId,
+        type: "Job",
+        title: "Job Application Cancelled",
+        message: `Your application for job ${application.jobId} has been cancelled. Penalty applied: $${penaltyData.penalty}.`,
+      });
+      await notification.save();
+
+      // ✅ Response
+      res.status(200).json({
+        message: "Application cancelled successfully",
+        application: {
+          status: "Cancelled",
+          reason,
+          describedReason: application.describedReason,
+          penalty: penaltyData.penalty,
+          penaltyLabel: penaltyData.label,
+          medicalCertificate,
+          cancelledAt: moment(application.cancelledAt).format("DD MMM, YY"),
+        },
+      });
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to cancel application', details: error.message });
+    res.status(500).json({ error: "Failed to cancel application", details: error.message });
   }
 };
 
@@ -520,28 +569,30 @@ exports.getJobDetails = async (req, res) => {
     // ✅ Fetch Application Details with Job & Shift
     const application = await Application.findById(applicationId)
       .populate({
-        path: 'jobId',
-        select: 'jobName jobIcon location shortAddress industry outlet company jobScope jobRequirements date',
+        path: "jobId",
+        select:
+          "jobName jobIcon location shortAddress industry outlet company jobScope jobRequirements date",
         populate: [
-          { path: 'outlet', select: 'outletName outletAddress outletImage outletType' },
-          { path: 'company', select: 'companyLegalName companyLogo contractEndDate' },
+          { path: "outlet", select: "outletName outletAddress outletImage outletType" },
+          { path: "company", select: "companyLegalName companyLogo contractEndDate" },
         ],
       })
       .populate({
-        path: 'shiftId',
-        select: 'startTime startMeridian endTime endMeridian duration payRate totalWage breakHours breakType vacancy standbyVacancy',
+        path: "shiftId",
+        select:
+          "startTime startMeridian endTime endMeridian duration payRate totalWage breakHours breakType vacancy standbyVacancy",
       })
       .lean();
 
     if (!application) {
-      return res.status(404).json({ success: false, error: 'Application not found' });
+      return res.status(404).json({ success: false, error: "Application not found" });
     }
 
     const job = application.jobId;
     const shift = application.shiftId;
 
     if (!job || !shift) {
-      return res.status(404).json({ success: false, error: 'Job or Shift not found' });
+      return res.status(404).json({ success: false, error: "Job or Shift not found" });
     }
 
     // ✅ Format Job Dates
@@ -549,12 +600,30 @@ exports.getJobDetails = async (req, res) => {
       ? moment(job.date).format("DD MMM, YYYY") // Example: "02 Mar, 2025"
       : null;
 
+    // ✅ Calculate hours before shift start
+    const shiftStart = moment(`${shift.startTime} ${shift.startMeridian}`, "hh:mm A");
+    const cancelledAt = moment(application.cancelledAt);
+    const hoursBeforeStart = shiftStart.diff(cancelledAt, "hours");
+
+    // ✅ Penalty Rules (Same as `getCancelledJobs` API)
+    const penaltyRules = [
+      { threshold: 48, penalty: 0, label: "> 48 Hours (No Penalty)" },
+      { threshold: 24, penalty: 5, label: "> 24 Hours (1st Time)" },
+      { threshold: 12, penalty: 10, label: "> 12 Hours (2nd Time)" },
+      { threshold: 6, penalty: 15, label: "> 6 Hours (3rd Time)" },
+      { threshold: 0, penalty: 50, label: "< 6 Hours (Last Minute)" },
+    ];
+    const penaltyData = penaltyRules.find((rule) => hoursBeforeStart >= rule.threshold) || {
+      penalty: 50,
+      label: "Immediate Cancellation",
+    };
+
     // ✅ Construct API Response
     const detailedJob = {
       applicationId: application._id,
       jobId: job._id,
       jobName: job.jobName,
-      jobIcon: job.jobIcon || '/static/default-job-icon.png',
+      jobIcon: job.jobIcon || "/static/default-job-icon.png",
       industry: job.industry,
       location: job.location,
       shortAddress: job.shortAddress,
@@ -566,18 +635,18 @@ exports.getJobDetails = async (req, res) => {
       // ✅ Employer Details
       employer: {
         _id: job.company?._id,
-        name: job.company?.companyLegalName || 'N/A',
-        companyLogo: job.company?.companyLogo || '/static/company-logo.png',
-        contractEndDate: job.company?.contractEndDate || '',
+        name: job.company?.companyLegalName || "N/A",
+        companyLogo: job.company?.companyLogo || "/static/company-logo.png",
+        contractEndDate: job.company?.contractEndDate || "",
       },
 
       // ✅ Outlet Details
       outlet: {
         _id: job.outlet?._id,
-        name: job.outlet?.outletName || 'N/A',
-        location: job.outlet?.outletAddress || '',
-        outletImage: job.outlet?.outletImage || '/static/outlet.png',
-        outletType: job.outlet?.outletType || '',
+        name: job.outlet?.outletName || "N/A",
+        location: job.outlet?.outletAddress || "",
+        outletImage: job.outlet?.outletImage || "/static/outlet.png",
+        outletType: job.outlet?.outletType || "",
       },
 
       // ✅ Shift Details
@@ -599,14 +668,22 @@ exports.getJobDetails = async (req, res) => {
       checkInLocation: application.checkInLocation || null,
 
       // ✅ Penalty & Cancellation Reason (for Cancelled/No-Show Jobs)
-      penalty: application.penalty || 0,
-      reason: application.reason || '',
+      penalty: penaltyData.penalty > 0 ? `- $${penaltyData.penalty}` : "No Penalty",
+      penaltyLabel: penaltyData.label,
+      reason: application.reason || "No Reason Provided",
+      describedReason: application.describedReason || "No additional details provided",
+      medicalCertificate: application.medicalCertificate || null,
+      cancellationCount: application.cancellationCount || 0, // ✅ Tracks total cancellations by user
     };
 
     res.status(200).json({ success: true, job: detailedJob });
   } catch (error) {
-    console.error('Error fetching job details:', error.message);
-    res.status(500).json({ success: false, error: 'Failed to fetch job details', details: error.message });
+    console.error("Error fetching job details:", error.message);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch job details",
+      details: error.message,
+    });
   }
 };
 

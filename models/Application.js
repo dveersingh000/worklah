@@ -11,8 +11,12 @@ const applicationSchema = new mongoose.Schema({
   appliedAt: { type: Date, default: Date.now },
   cancelledAt: { type: Date },
   completedAt: { type: Date }, 
-  reason: { type: String }, 
+  // ✅ New Fields for Cancellation Feature
+  reason: { type: String, enum: ["Medical", "Emergency", "Personal Reason", "Transport Issue", "Other"] },
+  describedReason: { type: String }, // ✅ Stores additional details for cancellation
   penalty: { type: Number, default: 0 },
+  medicalCertificate: { type: String }, // ✅ Stores MC file path if applicable
+  cancellationCount: { type: Number, default: 0 }, // ✅ Tracks number of times user cancelled
   clockInTime: { type: Date }, // ✅ Clock-in timestamp
   clockOutTime: { type: Date }, // ✅ Clock-out timestamp
   checkInLocation: { // ✅ Store GPS location during clock-in

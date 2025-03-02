@@ -1,11 +1,10 @@
 const mongoose = require("mongoose");
 
 const QRCodeSchema = new mongoose.Schema({
-  jobId: { type: mongoose.Schema.Types.ObjectId, ref: "Job", required: true },
-  shiftId: { type: mongoose.Schema.Types.ObjectId, required: true },
+  employerId: { type: mongoose.Schema.Types.ObjectId, ref: "Employer", required: true }, // 🔥 Store Employer ID
   qrCode: { type: String, required: true },
-  validFrom: { type: String, required: true },
-  validUntil: { type: String, required: true },
+  validFrom: { type: Date, required: true },
+  validUntil: { type: Date, required: true },
   createdAt: { type: Date, default: Date.now },
 });
 
