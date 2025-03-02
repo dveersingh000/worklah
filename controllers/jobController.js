@@ -637,7 +637,7 @@ exports.getOngoingJobs = async (req, res) => {
 
       const currentDate = moment().startOf("day");
       const jobDate = moment(app.date).startOf("day");
-      const daysRemaining = Math.max(jobDate.diff(currentDate, "days"), 0);
+      const daysRemaining = Math.max(moment(app.date).diff(moment(), "days"), 0);
 
       return {
         applicationId: app._id,
@@ -654,7 +654,7 @@ exports.getOngoingJobs = async (req, res) => {
         jobStatus: "Upcoming",
         appliedAt: app.appliedAt,
         daysRemaining,
-        jobDate: app.date, // Include date for UI grouping
+        jobDate: moment(app.date).format("DD MMM, YY"), // Include date for UI grouping
       };
     });
 
@@ -729,54 +729,77 @@ exports.getCancelledJobs = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Fetch applications with job and shift details
-    const applications = await Application.find({ userId, status: 'Cancelled' })
-    .populate({
-      path: 'jobId',
-      select: 'jobName jobIcon location subtitle subtitleIcon outlet',
-      populate: { path: 'outlet', select: 'outletImage' }, // Populate outletImage
-    })
-      .lean(); // Convert documents to plain objects for easier manipulation
+    // ✅ Fetch cancelled applications with job and shift details
+    const applications = await Application.find({ userId, status: "Cancelled" })
+      .populate({
+        path: "jobId",
+        select: "jobName jobIcon location outlet",
+        populate: { path: "outlet", select: "outletName outletImage" },
+      })
+      .populate({
+        path: "shiftId",
+        select:
+          "startTime startMeridian endTime endMeridian duration payRate totalWage breakHours breakType",
+      })
+      .lean();
 
-    // Map through applications to construct cancelledJobs array
+    // ✅ Penalty rules mapping based on cancellation time
+    const penaltyRules = [
+      { threshold: 48, penalty: 0, label: "> 48 Hours (No Penalty)" },
+      { threshold: 24, penalty: 5, label: "> 24 Hours (1st Time)" },
+      { threshold: 12, penalty: 10, label: "> 12 Hours (2nd Time)" },
+      { threshold: 6, penalty: 15, label: "> 6 Hours (3rd Time)" },
+      { threshold: 0, penalty: 50, label: "< 6 Hours (Last Minute)" },
+    ];
+
+    // ✅ Construct Cancelled Jobs Array
     const cancelledJobs = applications.map((app) => {
-      // Find the shift from the job's dates using shiftId
       const job = app.jobId;
-      let shiftDetails = null;
+      const shift = app.shiftId;
 
-      // Iterate through dates to find the matching shift
-      // for (const date of job.dates) {
-      //   shiftDetails = date.shifts.find((shift) => shift._id.equals(app.shiftId));
-      //   if (shiftDetails) break;
-      // }
+      if (!job || !shift) return null; // Skip if missing job or shift details
 
-      // If no shift found, skip this application
-      if (!shiftDetails) return null;
+      // ✅ Calculate hours before shift start time
+      const shiftStart = moment(`${shift.startTime} ${shift.startMeridian}`, "hh:mm A");
+      const cancelledAt = moment(app.cancelledAt);
+      const hoursBeforeStart = shiftStart.diff(cancelledAt, "hours");
+
+      // ✅ Determine applicable penalty
+      const penaltyData = penaltyRules.find((rule) => hoursBeforeStart >= rule.threshold) || {
+        penalty: 50,
+        label: "Immediate Cancellation",
+      };
 
       return {
         applicationId: app._id,
         jobName: job.jobName,
         jobIcon: job.jobIcon,
-        subtitle: job.subtitle,
-        subtitleIcon: job.subtitleIcon,
+        outletName: job.outlet?.outletName || "N/A",
+        outletImage: job.outlet?.outletImage || "/static/Job.png",
         location: job.location,
-        outletImage: job.outlet?.outletImage,
-        salary: shiftDetails.totalWage,
-        duration: `${shiftDetails.duration || 0} hrs`,
-        ratePerHour: `$${shiftDetails.payRate || 0}/hr`,
-        jobStatus: 'Cancelled',
-        appliedAt: app.appliedAt,
-        daysRemaining: "",
+        shiftStartTime: `${shift.startTime} ${shift.startMeridian}`,
+        shiftEndTime: `${shift.endTime} ${shift.endMeridian}`,
+        duration: `${shift.duration || 0} hrs`,
+        ratePerHour: `$${shift.payRate || 0}/hr`,
+        totalWage: `$${shift.totalWage || 0}`,
+        breakDuration: `${shift.breakHours || 0} hr`,
+        breakType: shift.breakType || "Unpaid",
+        penalty: penaltyData.penalty > 0 ? `- $${penaltyData.penalty}` : "No Penalty",
+        penaltyLabel: penaltyData.label, // ✅ New field for UI display
+        reason: app.reason || "No Reason Provided",
+        jobStatus: "Cancelled",
+        cancelledAt: moment(app.cancelledAt).format("DD MMM, YY"), // Standardized date format
       };
     });
 
-    // Filter out any null entries in case of unmatched shifts
+    // ✅ Filter out null entries & sort by cancellation date
     const filteredJobs = cancelledJobs.filter((job) => job !== null);
+    const sortedJobs = filteredJobs.sort((a, b) => moment(b.cancelledAt).diff(moment(a.cancelledAt)));
 
-    res.status(200).json({ success: true, jobs: filteredJobs });
+    res.status(200).json({ success: true, jobs: sortedJobs });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("Error fetching cancelled jobs:", error.message);
+    res.status(500).json({ success: false, error: "Failed to fetch cancelled jobs." });
   }
 };
 
