@@ -1,0 +1,91 @@
+{
+	"info": {
+		"_postman_id": "327167a9-28a9-4426-9a40-203b2f1eb64f",
+		"name": "WorkLah",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "22685252",
+		"_collection_link": "https://martian-meteor-678257.postman.co/workspace/ALL-IN-ONE~5b29e518-2947-44f3-ba24-2110ba91fc0b/collection/22685252-327167a9-28a9-4426-9a40-203b2f1eb64f?action=share&source=collection_link&creator=22685252"
+	},
+	"item": [
+		{
+			"name": "BOOKMARKS",
+			"item": [
+				{
+					"name": "addBookmark",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "authorization",
+								"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3OTQ1M2YwMjk5ZTUzZTRkMDg4Zjg0MiIsImlhdCI6MTc0MDkwNjI3NCwiZXhwIjoxNzQwOTI0Mjc0fQ.BtLTBCqojZMjueST66GPbtAZd7mP8ppZmEb0VxyyJrs",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"userId\":\"679453f0299e53e4d088f842\",\r\n    \"jobId\":\"67b877c32b60e1f6530c04dd\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:3000/api/bookmark",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "3000",
+							"path": [
+								"api",
+								"bookmark"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "getBookmark",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "authorization",
+								"value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3OTQ1M2YwMjk5ZTUzZTRkMDg4Zjg0MiIsImlhdCI6MTc0MDkwNjI3NCwiZXhwIjoxNzQwOTI0Mjc0fQ.BtLTBCqojZMjueST66GPbtAZd7mP8ppZmEb0VxyyJrs",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "http://localhost:3000/api/bookmark?userId=679453f0299e53e4d088f842",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "3000",
+							"path": [
+								"api",
+								"bookmark"
+							],
+							"query": [
+								{
+									"key": "userId",
+									"value": "679453f0299e53e4d088f842"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "register user",
+			"request": {
+				"method": "GET",
+				"header": []
+			},
+			"response": []
+		}
+	]
+}

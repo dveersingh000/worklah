@@ -33,6 +33,7 @@ const adminJobRoutes = require('./routes/adminJobRoutes');
 const adminCandidateRoutes = require("./routes/adminCandidateRoutes");
 const adminOutletRoutes = require("./routes/adminOutletRoutes");
 const hustleHeroesRoutes = require("./routes/hustleHeroesRoutes");
+const bookmarkRoutes=require('./routes/bookmarkRoutes')
 
 // Middleware
 app.use(cors({
@@ -90,6 +91,7 @@ app.use('/api/admin/jobs', adminJobRoutes);
 app.use("/api/admin", adminCandidateRoutes);
 app.use("/api/admin", adminOutletRoutes);
 app.use("/api/hustleheroes", hustleHeroesRoutes);
+app.use("/api/bookmark", bookmarkRoutes);
 
 
 // MongoDB connection
