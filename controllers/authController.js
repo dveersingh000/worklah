@@ -20,10 +20,10 @@ exports.getUserDynamicDetails = async (req, res) => {
 };
 
 exports.login = async (req, res) => {
-  const { phoneNumber, otp } = req.body;
+  const { phoneNumber } = req.body;
 
   try {
-    if (!phoneNumber || !otp) {
+    if (!phoneNumber ) {
       return res.status(400).json({ message: 'Phone number and OTP are required' });
     }
 
@@ -33,10 +33,10 @@ exports.login = async (req, res) => {
     }
 
     // Verify OTP using Twilio
-    const isValidOtp = await verifyOTP(phoneNumber, otp);
-    if (!isValidOtp) {
-      return res.status(400).json({ message: 'Invalid or expired OTP' });
-    }
+    // const isValidOtp = await verifyOTP(phoneNumber, otp);
+    // if (!isValidOtp) {
+    //   return res.status(400).json({ message: 'Invalid or expired OTP' });
+    // }
 
     // Generate JWT token
     const token = generateToken({ id: user._id });
