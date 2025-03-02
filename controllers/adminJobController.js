@@ -240,10 +240,12 @@ exports.getJobById = async (req, res) => {
       jobIcon: job.jobIcon || "/static/jobIcon.png",
       industry: job.industry,
       employer: {
+        _id: job.company?._id,
         name: job.company?.companyLegalName || "Unknown",
         logo: job.company?.companyLogo || "/static/companyLogo.png",
       },
       outlet: {
+        _id: job.outlet?._id,
         name: job.outlet?.outletName || "Unknown",
         location: job.outlet?.outletAddress || "Not Available",
         logo: job.outlet?.outletImage || "/static/Job.png",
