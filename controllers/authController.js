@@ -33,10 +33,10 @@ exports.login = async (req, res) => {
     }
 
     // Verify OTP using Twilio
-    // const isValidOtp = await verifyOTP(phoneNumber, otp);
-    // if (!isValidOtp) {
-    //   return res.status(400).json({ message: 'Invalid or expired OTP' });
-    // }
+    const isValidOtp = await verifyOTP(phoneNumber, otp);
+    if (!isValidOtp) {
+      return res.status(400).json({ message: 'Invalid or expired OTP' });
+    }
 
     // Generate JWT token
     const token = generateToken({ id: user._id });
