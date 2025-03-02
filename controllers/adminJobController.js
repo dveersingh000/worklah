@@ -158,6 +158,23 @@ exports.getJobById = async (req, res) => {
 
     if (!job) return res.status(404).json({ message: "Job not found" });
 
+    // Fetch applications to calculate filled vacancies & standby users
+    const applicationStats = await Application.aggregate([
+      { $match: { jobId: job._id } },
+      {
+        $group: {
+          _id: "$jobId",
+          totalApplications: { $sum: 1 },
+          standbyApplications: { $sum: { $cond: [{ $eq: ["$isStandby", true] }, 1, 0] } },
+        },
+      },
+    ]);
+
+    const jobApplications = applicationStats[0] || {
+      totalApplications: 0,
+      standbyApplications: 0,
+    };
+
     // Initialize shift summary
     let totalVacancy = 0;
     let totalStandby = 0;
@@ -182,6 +199,22 @@ exports.getJobById = async (req, res) => {
         totalWage: `$${shift.totalWage}`,
       };
     });
+
+    // Determine Job Status Logic
+    const today = moment().startOf("day");
+    const jobDate = moment(job.date).startOf("day");
+
+    let jobStatus = "Unknown";
+
+    if (job.isCancelled) {
+      jobStatus = "Cancelled";
+    } else if (jobDate.isAfter(today)) {
+      jobStatus = "Upcoming";
+    } else if (jobApplications.totalApplications >= totalVacancy) {
+      jobStatus = "Completed";
+    } else {
+      jobStatus = "Active";
+    }
 
     // Shift Summary
     const shiftSummary = {
@@ -220,6 +253,9 @@ exports.getJobById = async (req, res) => {
       shortAddress: job.shortAddress || "Not Available",
       jobScope: job.jobScope || [],
       jobRequirements: job.jobRequirements || [],
+      jobStatus, // ✅ Job status now included
+      vacancyUsers: `${jobApplications.totalApplications}/${totalVacancy}`, // ✅ Vacancy count
+      standbyUsers: `${jobApplications.standbyApplications}/${totalStandby}`, // ✅ Standby count
       shiftSummary, // Summary of shifts
       shifts: shiftsArray, // ✅ Flattened shift data for frontend ease
       totalWage: `$${shiftsArray.reduce((acc, shift) => acc + parseFloat(shift.totalWage.replace("$", "")), 0)}`,
@@ -232,6 +268,7 @@ exports.getJobById = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch job details", details: error.message });
   }
 };
+
 
 // ✅ Create a new job with proper shift details
 exports.createJob = async (req, res) => {

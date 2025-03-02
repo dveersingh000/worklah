@@ -20,10 +20,10 @@ exports.getUserDynamicDetails = async (req, res) => {
 };
 
 exports.login = async (req, res) => {
-  const { phoneNumber } = req.body;
+  const { phoneNumber, otp } = req.body;
 
   try {
-    if (!phoneNumber ) {
+    if (!phoneNumber || !otp) {
       return res.status(400).json({ message: 'Phone number and OTP are required' });
     }
 
