@@ -7,7 +7,9 @@ const shiftSchema = new mongoose.Schema({
   endTime: { type: String, required: true },
   endMeridian: { type: String, enum: ['AM', 'PM'], required: true },
   vacancy: { type: Number, default: 0 },
+  vacancyFilled: { type: Number, default: 0 },
   standbyVacancy: { type: Number, default: 0 },
+  standbyFilled: { type: Number, default: 0 },
   duration: { type: Number },
   breakHours: { type: Number, default: 0 },
   breakType: { type: String, enum: ['Paid', 'Unpaid'], default: 'Unpaid' },
@@ -15,6 +17,7 @@ const shiftSchema = new mongoose.Schema({
   payRate: { type: Number, required: true },
   totalWage: { type: Number },
   appliedShifts: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  standbyShifts: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 });
 
 module.exports = mongoose.model('Shift', shiftSchema);

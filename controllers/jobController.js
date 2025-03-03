@@ -91,26 +91,31 @@ exports.createJob = async (req, res) => {
 
 exports.searchJobs = async (req, res) => {
   try {
+    console.log('94..................')
     const { jobName, employerId, selectedDate } = req.query;
 
     const filters = {};
+    let jobs=[];
 
     // ✅ Search by job name (case-insensitive)
     if (jobName) filters.jobName = { $regex: jobName, $options: "i" };
 
     // ✅ Filter by employer ID (Only if valid ObjectId)
     if (employerId && mongoose.Types.ObjectId.isValid(employerId)) {
-      filters.employer = mongoose.Types.ObjectId(employerId);
+      filters.company =new  mongoose.Types.ObjectId(employerId);
+      //jobs=Job.populate('company','companyEmail accountManager');
+      console.log(jobs,"...........................107")
     }
 
     // ✅ Filter jobs by date (Assuming job's shift has a "date" field)
     if (selectedDate) {
-      filters["shifts.date"] = selectedDate; // Ensure the date format matches
+      filters["date"] = selectedDate; // Ensure the date format matches
     }
 
-    const jobs = await Job.find(filters)
+     jobs = await Job.find(filters)
       .populate("company", "companyLegalName companyLogo")
       .populate("outlet", "outletName location outletImage");
+
 
     res.status(200).json({ success: true, jobs });
   } catch (error) {
@@ -121,6 +126,36 @@ exports.searchJobs = async (req, res) => {
     });
   }
 };
+
+
+exports.getEmployersList=async(req,res)=>{
+  try{
+    //get employerslist to show the drop-down accordingly
+      let employers=await Employer.find();
+      employers = employers.map((item) => ({
+        _id: item._id,
+        accountManager: item.accountManager
+    }));
+    
+
+
+      if(!employers){
+        return res.status(404).send({
+          message:"no employers found"
+        })
+      }
+
+      return res.status(200).send({
+        data:employers
+      })
+
+  }catch(err){
+    return res.status(500).json({
+      success:false,
+      message:err.message
+    })
+  }
+}
 
 
 // Get all jobs with pagination
