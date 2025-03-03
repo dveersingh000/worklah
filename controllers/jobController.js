@@ -94,7 +94,7 @@ exports.searchJobs = async (req, res) => {
     console.log('94..................')
     const { jobName, employerId, selectedDate } = req.query;
 
-    const filters = {};
+    let filters = {};
     let jobs=[];
 
     // ✅ Search by job name (case-insensitive)
