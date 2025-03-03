@@ -57,7 +57,7 @@ router.put('/:id', authMiddleware, updateJob);
 router.delete('/:id',authMiddleware,  deleteJob); 
 
 // Shift Management
-router.post('/:jobId/apply',  applyForJob); // Apply for a shift
+router.post('/:jobId/apply',  authMiddleware, applyForJob); // Apply for a shift
 router.post('/:jobId/cancel', authMiddleware, cancelApplication); // Cancel an application
 
 

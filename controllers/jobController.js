@@ -389,20 +389,31 @@ exports.applyForJob = async (req, res) => {
     //   return res.status(400).json({ error: "Shift does not belong to this job" });
     // }
 
+    // ✅ Check if the user has already applied for this shift
+    const existingApplication = await Application.findOne({
+      userId,
+      shiftId,
+      jobId,
+    });
+
+    if (existingApplication) {
+      return res.status(400).json({ error: "You have already applied for this shift." });
+    }
+
     // ✅ Validate Vacancy & Standby Logic
     if (!isStandby) {
-      // Apply for a normal vacancy
-      if (shift.vacancy > shift.appliedShifts.length) {
+      // Apply for a normal shift if vacancy is available
+      if (shift.appliedShifts.length < shift.vacancy) {
         shift.appliedShifts.push(userId);
       } else {
-        return res.status(400).json({ error: "No vacancies available" });
+        return res.status(400).json({ error: "No vacancies available. Try standby if available." });
       }
     } else {
-      // Apply for Standby ONLY if the shift is fully booked
+      // Apply for Standby ONLY if shift is FULLY booked
       if (shift.appliedShifts.length >= shift.vacancy && shift.standbyVacancy > 0) {
-        shift.standbyVacancy -= 1; // Reduce standby slots
+        shift.standbyVacancy -= 1; // Deduct standby slot **ONLY when isStandby is true**
       } else {
-        return res.status(400).json({ error: "Standby not available for this shift" });
+        return res.status(400).json({ error: "Standby not available for this shift." });
       }
     }
 
@@ -449,8 +460,7 @@ exports.applyForJob = async (req, res) => {
 };
 
 
-
-// ✅ Configure Multer for Medical Certificate Upload
+// ✅ Configure multer for medical certificate uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, "uploads/mc-certificates/");
@@ -490,7 +500,7 @@ exports.cancelApplication = async (req, res) => {
       const now = moment();
       const hoursBeforeStart = shiftStart.diff(now, "hours");
 
-      // ✅ Penalty Rules (Same as `getCancelledJobs` API)
+      // ✅ Penalty Rules
       const penaltyRules = [
         { threshold: 48, penalty: 0, label: "> 48 Hours (No Penalty)" },
         { threshold: 24, penalty: 5, label: "> 24 Hours (1st Time)" },
@@ -510,7 +520,7 @@ exports.cancelApplication = async (req, res) => {
       application.describedReason = describedReason || "No additional details provided";
       application.penalty = penaltyData.penalty;
       application.cancelledAt = new Date();
-      application.cancellationCount = (application.cancellationCount || 0) + 1; // ✅ Increment cancellation count
+      application.cancellationCount = (application.cancellationCount || 0) + 1;
 
       if (reason === "Medical" && medicalCertificate) {
         application.medicalCertificate = medicalCertificate;
@@ -518,19 +528,27 @@ exports.cancelApplication = async (req, res) => {
 
       await application.save();
 
-      // ✅ Update Job & Shift Vacancies
-      const job = await Job.findById(application.jobId);
-      const jobDate = job.dates.find(
-        (d) => moment(d.date).format("YYYY-MM-DD") === moment(application.date).format("YYYY-MM-DD")
-      );
-      const shiftInJob = jobDate.shifts.find((s) => s._id.toString() === application.shiftId.toString());
-
-      if (application.isStandby) {
-        shiftInJob.standbyFilled -= 1;
-      } else {
-        shiftInJob.filledVacancies -= 1;
+      // ✅ Find Job & Ensure it Exists
+      const job = await Job.findById(application.jobId).populate("shifts");
+      if (!job) {
+        return res.status(500).json({ error: "Job data missing required fields." });
       }
 
+      // ✅ Find the shift in the job
+      const shiftInJob = job.shifts.find((s) => s._id.toString() === application.shiftId.toString());
+
+      if (!shiftInJob) {
+        return res.status(500).json({ error: "Shift data mismatch." });
+      }
+
+      // ✅ Update vacancy counts
+      if (application.isStandby) {
+        shiftInJob.standbyFilled = Math.max(0, shiftInJob.standbyFilled - 1);
+      } else {
+        shiftInJob.filledVacancies = Math.max(0, shiftInJob.filledVacancies - 1);
+      }
+
+      await shiftInJob.save();
       await job.save();
 
       // ✅ Send Cancellation Notification
@@ -553,14 +571,17 @@ exports.cancelApplication = async (req, res) => {
           penalty: penaltyData.penalty,
           penaltyLabel: penaltyData.label,
           medicalCertificate,
-          cancelledAt: moment(application.cancelledAt).format("DD MMM, YY"),
+          cancelledAt: moment(application.cancelledAt).format("YYYY-MM-DD HH:mm:ss"),
         },
       });
     });
   } catch (error) {
+    console.error("❌ Error in cancelApplication:", error);
     res.status(500).json({ error: "Failed to cancel application", details: error.message });
   }
 };
+
+
 
 exports.getJobDetails = async (req, res) => {
   try {
