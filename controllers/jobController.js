@@ -7,7 +7,6 @@ const Application = require('../models/Application');
 const Notification = require('../models/Notification');
 const mongoose = require('mongoose');
 const moment = require('moment');
-const path = require("path");
 const multer = require("multer");
 
 // Create a new job with shifts
@@ -25,6 +24,10 @@ exports.createJob = async (req, res) => {
       jobRequirements,
       shifts
     } = req.body;
+
+    if (!moment(date, "YYYY-MM-DD", true).isValid()) {
+      return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
+    }
 
     // Validate Employer
     const employerExists = await Employer.findById(company);
@@ -103,9 +106,13 @@ exports.searchJobs = async (req, res) => {
       filters.employer = mongoose.Types.ObjectId(employerId);
     }
 
-    // ✅ Filter jobs by date (Assuming job's shift has a "date" field)
+    // ✅ Correct Date Format Filtering
     if (selectedDate) {
-      filters["shifts.date"] = selectedDate; // Ensure the date format matches
+      const formattedDate = moment(selectedDate, "YYYY-MM-DD", true);
+      if (!formattedDate.isValid()) {
+        return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
+      }
+      filters["date"] = formattedDate.toDate();
     }
 
     const jobs = await Job.find(filters)
@@ -352,13 +359,27 @@ exports.updateJob = async (req, res) => {
 // Delete a job
 exports.deleteJob = async (req, res) => {
   try {
-    const job = await Job.findByIdAndDelete(req.params.id);
+    const jobId = req.params.id;
 
-    if (!job) return res.status(404).json({ message: 'Job not found' });
+    // ✅ Check if the job exists
+    const job = await Job.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
 
-    res.status(200).json({ message: 'Job deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    // ✅ Delete associated shifts
+    await Shift.deleteMany({ job: jobId });
+
+    // ✅ Delete associated applications
+    await Application.deleteMany({ jobId: jobId });
+
+    // ✅ Delete the job itself
+    await Job.findByIdAndDelete(jobId);
+
+    return res.status(200).json({ message: "Job deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting job:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };
 
