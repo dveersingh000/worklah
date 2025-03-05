@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Job = require('../models/Job');
 const Notification = require('../models/Notification'); 
+const Shift = require('../models/Shift');
 // const EWallet = require('../models/EWallet');
 
 // Fetches user details
@@ -60,14 +61,44 @@ exports.getShiftAvailability = async (req, res) => {
 // Apply for a job
 exports.applyForJob = async (req, res) => {
   try {
-    const { job_id, user_id } = req.body;
+    const { job_id, user_id,shift_id } = req.body;
     const job = await Job.findById(job_id);
+   
+
     if (!job) return res.status(404).json({ error: 'Job not found' });
+    const shift=await Shift.findById(shift_id);
 
-    job.applicants.push(user_id);
-    await job.save();
+    if(shift.appliedShifts.includes(user_id) || shift.standbyShifts.includes(user_id)){
+      return res.status(404).send({
+        message:"user already exist in applied candidate",
+        success:false
+      })
+    }
 
-    res.status(200).json({ message: 'Application submitted successfully' });
+    if(shift.vacancyFilled<shift.vacancy){
+     shift.appliedShifts.push(user_id);
+     shift.vacancyFilled+=1;
+     await shift.save();
+     return res.status(200).send({
+      success:true,
+      message:"updated shift success"
+     })
+    }
+    else if(shift.vacancyFilled===shift.vacancy && shift.standbyFilled<shift.standbyVacancy){
+      shift.standbyShifts.push(user_id);
+      shift.vacancyFilled+=1;
+      await shift.save();
+    }
+    else {
+      return res.status(404).send({
+        message:"no vacancy is left",
+        success:false
+      })
+    }
+    // job.applicants.push(user_id);
+    // await job.save();
+
+    // res.status(200).json({ message: 'Application submitted successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Server Error' });
   }

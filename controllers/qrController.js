@@ -13,7 +13,11 @@ exports.generateQRCode = async (req, res) => {
     if (!employer) return res.status(404).json({ message: "Employer not found" });
 
     // Fetch jobs under the employer
-    const jobs = await Job.find({ employer: employerId }).populate("outlet");
+    let jobs = await Job.find({company: employerId}).populate("outlet");
+    jobs = jobs.filter((job) => 
+      job.date.toISOString().split('T')[0] === new Date().toISOString().split('T')[0]
+  );
+  
 
     if (jobs.length === 0) return res.status(404).json({ message: "No jobs found for this employer" });
 
@@ -24,32 +28,25 @@ exports.generateQRCode = async (req, res) => {
     let jobRoles = [];
     let jobIds = [];
     let shiftIds = [];
-    let validFrom = null;
-    let validUntil = null;
-    let date = null;
+    let date =  new Date().toISOString().split('T')[0]
+    let validFrom = date;
+    let validUntil = new Date();
+    validUntil.setDate(validUntil.getDate() + 1); // Add 1 day (24 hours)
+    validUntil = validUntil.toISOString().split('T')[0]; // Format to YYYY-MM-DD
+    
 
     jobs.forEach(job => {
       jobRoles.push(job.jobName);
       jobIds.push(job._id.toString());
-      job.dates.forEach(d => {
-        if (!date) date = d.date;
-        d.shifts.forEach(shift => {
-          shiftIds.push(shift._id.toString());
-          if (!validFrom || shift.startTime < validFrom) validFrom = shift.startTime;
-          if (!validUntil || shift.endTime > validUntil) validUntil = shift.endTime;
-        });
-      });
+    
     });
 
-    // ✅ Convert validFrom and validUntil to proper DateTime format
-    const parsedDate = new Date(date);
-    validFrom = new Date(parsedDate.toISOString().split("T")[0] + "T" + validFrom + ":00Z");
-    validUntil = new Date(parsedDate.toISOString().split("T")[0] + "T" + validUntil + ":00Z");
+   
 
     // Prepare QR Code data
     const qrData = {
       employerId,
-      employerName: employer.companyName,
+      employerName: employer.accountManager,
       date: new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
       outlet: {
         name: outlet.outletName,
@@ -59,8 +56,8 @@ exports.generateQRCode = async (req, res) => {
       jobIds,
       totalShifts: shiftIds.length,
       shiftIds,
-      validFrom,
-      validUntil,
+      validFrom:date,
+      validUntil:date,
       timestamp: new Date().toISOString(),
     };
 

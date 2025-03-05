@@ -23,7 +23,8 @@ const {
   addBank,
   getWalletBalance,
   addCashout,
-  getTransactions
+  getTransactions,
+  getEmployersList
 } = require('../controllers/jobController');
 
 
@@ -49,6 +50,7 @@ router.get('/transactions', getTransactions);
 
 // Job Management
 router.get('/search',  searchJobs);
+router.get('/employers',  getEmployersList);
 router.post('/', authMiddleware, createJob);
 router.get('/', getAllJobs);
 router.get('/', authMiddleware, getJobs);
