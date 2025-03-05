@@ -16,6 +16,8 @@ const EmployerSchema = new mongoose.Schema(
     contractStartDate: { type: Date },
     contractEndDate: { type: Date },
     contractStatus: { type: String, enum: ["Active", "In Discussion", "Expired"], default: "In Discussion" },
+    serviceAgreement: { type: String, enum: ["Completed", "Pending"], default: "Pending" }, // ✅ New Field
+    jobPostingLimit: { type: Number, default: 50 }, // ✅ New Field
     outlets: [{ type: mongoose.Schema.Types.ObjectId, ref: "Outlet" }],
     createdAt: { type: Date, default: Date.now },
   });
