@@ -20,19 +20,19 @@ exports.getUserDynamicDetails = async (req, res) => {
 };
 
 exports.login = async (req, res) => {
-  const { phoneNumber, otp } = req.body;
+  const { phoneNumber,otp } = req.body;
 
   try {
-    if (!phoneNumber || !otp) {
+    if (!phoneNumber ) {
       return res.status(400).json({ message: 'Phone number and OTP are required' });
     }
 
-    const user = await User.findOne({ phoneNumber });
+    const user = await User.findOne({ phoneNumber});
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Verify OTP using Twilio
+   // Verify OTP using Twilio
     const isValidOtp = await verifyOTP(phoneNumber, otp);
     if (!isValidOtp) {
       return res.status(400).json({ message: 'Invalid or expired OTP' });
