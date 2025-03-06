@@ -292,7 +292,12 @@ exports.getCandidateProfile = async (req, res) => {
 
     if (!user) return res.status(404).json({ message: "Candidate not found" });
 
-    // ✅ Fetch candidate applications
+    // ✅ Fetch Worker Details (Work Pass, Attendance, Work History)
+    const worker = await Worker.findOne({ userId: id })
+      .select("workPassStatus attendanceRate totalCompletedJobs totalHoursWorked cancellationCount noShowCount")
+      .lean();
+
+    // ✅ Fetch candidate applications (Job History & Active Job)
     const applications = await Application.find({ userId: id })
       .populate({
         path: "jobId",
@@ -305,46 +310,92 @@ exports.getCandidateProfile = async (req, res) => {
       .populate("shiftId")
       .lean();
 
+    // ✅ Calculate Age from DOB
+    const calculateAge = (dob) => {
+      return dob ? moment().diff(moment(dob), "years") : "N/A";
+    };
+
     // ✅ Candidate Profile Object
     const candidateProfile = {
       candidateId: user._id,
       fullName: user.fullName,
       employmentStatus: user.employmentStatus,
+      workPassStatus: worker?.workPassStatus || "N/A", // ✅ Work Pass Status
       profilePicture: user.profilePicture || "/static/default-avatar.png",
       registeredAt: moment(user.createdAt).format("DD MMM, YYYY, hh:mm A"),
       personalDetails: {
         eWalletAmount: "$2,450",
         contactNumber: user.phoneNumber,
         dob: user.profileId?.dob ? moment(user.profileId.dob).format("DD - MM - YYYY") : "N/A",
+        age: calculateAge(user.profileId?.dob), // ✅ Age Calculation
         gender: user.profileId?.gender || "N/A",
         nationality: "Singapore",
+        race: user.profileId?.race || "N/A", // ✅ Race
+        paynowNumber: user.profileId?.paynowNumber || "N/A", // ✅ PayNow Number
         nric: user.profileId?.nricNumber ? user.profileId.nricNumber.replace(/.(?=.{4})/g, "*") : "N/A",
         icNumber: user.profileId?.finNumber || "N/A",
+        foodHygieneCert: user.profileId?.foodHygieneCert || "N/A", // ✅ Food & Hygiene Certificate
       },
     };
 
-    // ✅ Active Job Processing
+    // ✅ Active Job Processing (Ensure all fields exist)
     const activeJob = applications.find(app => app.status === "Upcoming");
     let activeJobDetails = activeJob ? {
-      jobName: activeJob.jobId.jobName,
-      employer: activeJob.jobId.company.companyLegalName,
-      date: moment(activeJob.date).format("DD MMM, YYYY"),
-      shiftStartTime: `${activeJob.shiftId.startTime} ${activeJob.shiftId.startMeridian}`,
-      shiftEndTime: `${activeJob.shiftId.endTime} ${activeJob.shiftId.endMeridian}`,
-      totalWage: `$${activeJob.shiftId.totalWage}`,
+      jobName: activeJob.jobId?.jobName || "Unknown Job",
+      employer: activeJob.jobId?.company?.companyLegalName || "Unknown Employer",
+      date: activeJob.date ? moment(activeJob.date).format("DD MMM, YYYY") : "N/A",
+      shiftStartTime: activeJob.shiftId ? `${activeJob.shiftId.startTime} ${activeJob.shiftId.startMeridian}` : "N/A",
+      shiftEndTime: activeJob.shiftId ? `${activeJob.shiftId.endTime} ${activeJob.shiftId.endMeridian}` : "N/A",
+      totalDuration: activeJob.shiftId ? `${activeJob.shiftId.duration} hrs` : "N/A",
+      clockedInTime: activeJob.clockInTime ? moment(activeJob.clockInTime).format("hh:mm A") : "--",
+      clockedOutTime: activeJob.clockOutTime ? moment(activeJob.clockOutTime).format("hh:mm A") : "--",
+      totalWage: activeJob.shiftId ? `$${activeJob.shiftId.totalWage}` : "N/A",
+      wageGenerated: activeJob.shiftId ? `$${activeJob.shiftId.totalWage - 5}` : "--", // Example Calculation
+      rateType: activeJob.shiftId?.rateType || "N/A",
     } : null;
+
+    // ✅ Work History Data
+    const workHistory = {
+      attendanceRate: worker?.attendanceRate || "N/A",
+      totalCompletedJobs: worker?.totalCompletedJobs || 0,
+      workingHours: worker?.totalHoursWorked || 0,
+      cancellationWithProof: worker?.cancellationCount?.withProof || 0,
+      neverTurnUp: worker?.noShowCount || 0,
+      moreThan24hrsCancellation: worker?.cancellationCount?.moreThan24hrs || 0,
+      lessThan24hrsCancellation: worker?.cancellationCount?.lessThan24hrs || 0,
+    };
+
+    // ✅ Job History Data
+    const jobHistory = applications.map(app => ({
+      jobName: app.jobId?.jobName || "Unknown Job",
+      jobId: app.jobId?._id || "N/A",
+      date: app.date ? moment(app.date).format("DD MMM, YYYY") : "N/A",
+      employer: app.jobId?.company?.companyLegalName || "Unknown Employer",
+      shiftTiming: app.shiftId ? `${app.shiftId.startTime} ${app.shiftId.startMeridian} - ${app.shiftId.endTime} ${app.shiftId.endMeridian}` : "N/A",
+      shiftId: app.shiftId?._id || "N/A",
+      clockedIn: app.clockInTime ? moment(app.clockInTime).format("hh:mm A") : "--",
+      clockedOut: app.clockOutTime ? moment(app.clockOutTime).format("hh:mm A") : "--",
+      breakType: app.shiftId?.breakType || "N/A",
+      fromConfirmedStandby: app.isStandby ? "Standby" : "Confirmed",
+      rateType: app.shiftId?.rateType || "N/A",
+      totalWage: app.shiftId ? `$${app.shiftId.totalWage}` : "N/A",
+      wageGenerated: app.shiftId ? `$${app.shiftId.totalWage - 5}` : "--", // Example
+      jobStatus: app.status || "N/A",
+      paymentStatus: app.paymentStatus || "Pending",
+    }));
 
     res.status(200).json({
       success: true,
       candidateProfile,
       activeJob: activeJobDetails || {},
+      workHistory,
+      jobHistory,
     });
   } catch (error) {
     console.error("Error in getCandidateProfile:", error);
     res.status(500).json({ error: "Failed to fetch candidate details", details: error.message });
   }
 };
-
 /**
  * ✅ Update Candidate Profile
  */
