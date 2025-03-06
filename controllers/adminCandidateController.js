@@ -9,46 +9,62 @@ const moment = require("moment");
  * ✅ Get candidates by Job ID with applied filters (Confirmed, Pending, Standby)
  */
 
-exports.getCandidatesByJob = async (req, res) => {
-  try {
-    const { id } = req.params; // Job ID
-    const { status, shiftTime } = req.query; // Filters
 
-    // ✅ Fetch Job with company and outlet details
-    const job = await Job.findById(id)
+
+exports.getCandidates = async (req, res) => {
+  try {
+    const { jobName, employer, status, shiftTime } = req.query;
+
+    // ✅ Fetch jobs based on job name or employer
+    let jobQuery = {};
+    if (jobName) jobQuery.jobName = new RegExp(jobName, "i"); // Case-insensitive search
+    if (employer) {
+      const employerData = await Employer.findOne({ companyLegalName: new RegExp(employer, "i") });
+      if (employerData) jobQuery.company = employerData._id;
+    }
+
+    const jobs = await Job.find(jobQuery)
       .populate("company", "companyLegalName companyLogo")
       .populate("outlet", "outletName outletAddress")
       .populate("shifts", "startTime startMeridian endTime endMeridian vacancy standbyVacancy")
       .lean();
 
-    if (!job) return res.status(404).json({ message: "Job not found" });
+    if (!jobs.length) return res.status(404).json({ message: "No jobs found" });
 
-    // ✅ Ensure `company` exists before accessing properties
-    const employerName = job.company ? job.company.companyLegalName : "Unknown Employer";
-    const jobDate = moment(job.date).format("DD MMM, YY");
-
-    // ✅ Calculate Current Headcount
-    const totalVacancy = job.shifts.reduce((acc, shift) => acc + shift.vacancy, 0);
-    const totalApplied = await Application.countDocuments({ jobId: id });
-
-    const currentHeadCount = `${totalApplied}/${totalVacancy}`;
-
-    // ✅ Fetch all applications
-    const applications = await Application.find({ jobId: id })
+    // ✅ Fetch applications for these jobs
+    const jobIds = jobs.map((job) => job._id);
+    const applications = await Application.find({ jobId: { $in: jobIds } })
       .populate("userId", "fullName gender phoneNumber dob nricNumber profilePicture")
+      .populate("jobId", "jobName date company isCancelled")
       .populate("shiftId")
       .lean();
 
     if (!applications.length) return res.status(404).json({ message: "No candidates found" });
 
-    // ✅ Organize candidates into categories
     const confirmedCandidates = [];
     const pendingCandidates = [];
     const standbyCandidates = [];
 
     applications.forEach((app) => {
-      if (!app.userId || !app.shiftId) return;
+      if (!app.userId || !app.jobId || !app.shiftId) return;
 
+      const employerName = app.jobId.company ? app.jobId.company.companyLegalName : "Unknown Employer";
+      const jobDate = moment(app.jobId.date).format("DD MMM, YY");
+
+      // ✅ Calculate job status
+      const today = moment().startOf("day");
+      const jobMomentDate = moment(app.jobId.date).startOf("day");
+
+      let jobStatus = "Unknown";
+      if (app.jobId.isCancelled) {
+        jobStatus = "Cancelled";
+      } else if (jobMomentDate.isAfter(today)) {
+        jobStatus = "Upcoming";
+      } else {
+        jobStatus = "Active";
+      }
+
+      // ✅ Candidate object
       const candidate = {
         id: app.userId._id,
         fullName: app.userId.fullName,
@@ -59,7 +75,15 @@ exports.getCandidatesByJob = async (req, res) => {
         profilePicture: app.userId.profilePicture || "/static/default-avatar.png",
         appliedStatus: app.appliedStatus || "Applied",
         confirmedOrStandby: app.isStandby ? "Standby" : "Confirmed",
+        job: {
+          jobId: app.jobId._id,
+          jobName: app.jobId.jobName,
+          employer: employerName,
+          date: jobDate,
+          jobStatus,
+        },
         shift: {
+          shiftId: app.shiftId._id,
           date: moment(app.date).format("DD MMM, YYYY"),
           startTime: `${app.shiftId.startTime} ${app.shiftId.startMeridian}`,
           endTime: `${app.shiftId.endTime} ${app.shiftId.endMeridian}`,
@@ -87,31 +111,8 @@ exports.getCandidatesByJob = async (req, res) => {
     if (status) filteredCandidates = filteredCandidates.filter((c) => c.confirmedOrStandby.toLowerCase() === status.toLowerCase());
     if (shiftTime) filteredCandidates = filteredCandidates.filter((c) => c.shift.startTime === shiftTime);
 
-    // ✅ Determine Job Status (Similar to `getAllJobs`)
-    const today = moment().startOf("day");
-    const jobMomentDate = moment(job.date).startOf("day");
-
-    let jobStatus = "Unknown";
-    if (job.isCancelled) {
-      jobStatus = "Cancelled";
-    } else if (jobMomentDate.isAfter(today)) {
-      jobStatus = "Upcoming";
-    } else if (totalApplied >= totalVacancy) {
-      jobStatus = "Completed";
-    } else {
-      jobStatus = "Active";
-    }
-
     res.status(200).json({
       success: true,
-      job: {
-        jobId: job._id,
-        jobName: job.jobName,
-        employer: employerName,
-        date: jobDate,
-        currentHeadCount,
-        jobStatus,
-      },
       totalCandidates: filteredCandidates.length,
       confirmedCount: confirmedCandidates.length,
       pendingCount: pendingCandidates.length,
@@ -119,10 +120,11 @@ exports.getCandidatesByJob = async (req, res) => {
       candidates: filteredCandidates,
     });
   } catch (error) {
-    console.error("Error in getCandidatesByJob:", error);
+    console.error("Error in getCandidates:", error);
     res.status(500).json({ error: "Failed to fetch candidates", details: error.message });
   }
 };
+
 
 
 
