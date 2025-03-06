@@ -1,7 +1,6 @@
-const Job = require("../models/Job");
 const Employer = require("../models/Employer");
 const Outlet = require("../models/Outlet");
-const mongoose = require("mongoose");
+const Job = require("../models/Job");
 const moment = require("moment");
 
 exports.createEmployer = async (req, res) => {
@@ -121,111 +120,42 @@ exports.getEmployers = async (req, res) => {
 
 
 // ✅ Get employer by ID
+
+
 exports.getEmployerById = async (req, res) => {
   try {
-    const employerId = req.params.id;
-
-    // ✅ Fetch Employer Data with Outlets
-    const employer = await Employer.findById(employerId)
-      .populate("outlets", "outletName outletAddress")
-      .lean();
+    // ✅ Fetch employer details with outlets
+    const employer = await Employer.findById(req.params.id).populate("outlets");
 
     if (!employer) {
       return res.status(404).json({ message: "Employer not found" });
     }
 
-    // ✅ Fetch Employer's Job Postings
-    const jobs = await Job.find({ company: employerId })
-      .populate("outlet", "outletName outletAddress")
-      .populate("shifts", "startTime startMeridian endTime endMeridian vacancy vacancyFilled standbyVacancy standbyFilled duration breakHours breakType rateType payRate totalWage")
-      .lean();
+    // ✅ Fetch jobs associated with this employer
+    const jobs = await Job.find({ company: employer._id }).populate("shifts", "vacancy date");
 
-    const formattedJobs = jobs.map((job) => {
-      let totalVacancy = 0;
-      let totalStandby = 0;
-      let totalWage = 0;
-      let totalDuration = 0;
-      let rateType = "Flat Rate"; // Default
-
-      job.shifts.forEach((shift) => {
-        totalVacancy += shift.vacancy;
-        totalStandby += shift.standbyVacancy;
-        totalWage += shift.totalWage;
-        totalDuration += shift.duration;
-        rateType = shift.rateType;
-      });
-
-      // ✅ Determine Job Status
-      const today = moment().startOf("day");
+    // ✅ Count active jobs
+    const today = moment().startOf("day");
+    const activeJobPostings = jobs.filter((job) => {
       const jobDate = moment(job.date).startOf("day");
+      const totalVacancy = job.shifts.reduce((sum, shift) => sum + shift.vacancy, 0);
+      return jobDate.isSameOrAfter(today) && totalVacancy > 0; // ✅ Active Jobs
+    }).length;
 
-      let jobStatus = "Unknown";
-      if (jobDate.isAfter(today)) jobStatus = "Upcoming";
-      else if (totalVacancy === 0) jobStatus = "Completed";
-      else jobStatus = "Active";
+    // ✅ Count number of outlets
+    const numberOfOutlets = employer.outlets.length;
 
-      return {
-        jobId: job._id,
-        jobName: job.jobName,
-        outlet: {
-          name: job.outlet?.outletName || "Unknown",
-          address: job.outlet?.outletAddress || "Unknown Address",
-        },
-        date: moment(job.date).format("DD MMM, YY"),
-        availableShifts: job.shifts.length,
-        vacancyFilled: `${totalVacancy}/${job.shifts.reduce((sum, shift) => sum + shift.vacancy, 0)}`,
-        standbyFilled: `${totalStandby}/${job.shifts.reduce((sum, shift) => sum + shift.standbyVacancy, 0)}`,
-        breaksIncluded: `${job.shifts[0]?.breakHours} Hrs ${job.shifts[0]?.breakType}`,
-        totalDuration: `${totalDuration} Hrs`,
-        rateType,
-        rate: `$${job.shifts[0]?.payRate}/hr`,
-        jobStatus,
-        totalWage: `$${totalWage}`,
-      };
-    });
-
-    // ✅ Response Object
     res.status(200).json({
-      success: true,
-      employerDetails: {
-        employerId: employer._id,
-        companyLegalName: employer.companyLegalName,
-        companyLogo: employer.companyLogo,
-        hqAddress: employer.hqAddress,
-        companyNumber: employer.companyNumber,
-        contactPerson: {
-          name: employer.mainContactPersonName || "Not Available",
-          position: employer.mainContactPersonPosition || "Not Available",
-          phoneNumber: employer.mainContactPersonNumber || "Not Available",
-        },
-        industry: employer.industry,
-        contract: {
-          startDate: moment(employer.contractStartDate).format("DD MMM, YYYY"),
-          endDate: moment(employer.contractEndDate).format("DD MMM, YYYY"),
-          status: employer.contractStatus,
-        },
-        serviceAgreement: employer.serviceAgreement,
-        accountManager: employer.accountManager,
-        jobPostingLimit: employer.jobPostingLimit,
-      },
-      outletSummary: {
-        numberOfOutlets: employer.outlets.length,
-        outlets: employer.outlets.map((outlet) => ({
-          name: outlet.outletName,
-          address: outlet.outletAddress,
-        })),
-      },
-      jobSummary: {
-        activeJobs: formattedJobs.filter((job) => job.jobStatus === "Active").length,
-        totalJobPostings: formattedJobs.length,
-      },
-      jobPostings: formattedJobs,
+      employer,
+      activeJobPostings, // ✅ Fixed Active Job Postings Count
+      numberOfOutlets, // ✅ Number of Outlets Count
     });
   } catch (error) {
     console.error("Error fetching employer:", error);
     res.status(500).json({ message: "Internal server error", error });
   }
 };
+
 
 exports.updateEmployer = async (req, res) => {
   try {
