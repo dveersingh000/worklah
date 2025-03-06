@@ -4,6 +4,9 @@ const User = require("../models/User");
 const Shift = require("../models/Shift");
 const mongoose = require("mongoose");
 const moment = require("moment");
+const Employer = require("../models/Employer");
+
+const Worker = require("../models/Worker");
 
 /**
  * ✅ Get candidates by Job ID with applied filters (Confirmed, Pending, Standby)
@@ -34,12 +37,24 @@ exports.getCandidates = async (req, res) => {
     // ✅ Fetch applications for these jobs
     const jobIds = jobs.map((job) => job._id);
     const applications = await Application.find({ jobId: { $in: jobIds } })
-      .populate("userId", "fullName gender phoneNumber dob nricNumber profilePicture")
+      .populate("userId", "fullName gender phoneNumber dob nricNumber profilePicture createdAt")
       .populate("jobId", "jobName date company isCancelled")
       .populate("shiftId")
       .lean();
 
     if (!applications.length) return res.status(404).json({ message: "No candidates found" });
+
+    // ✅ Fetch Worker Data
+    const workerIds = applications.map((app) => app.userId?._id).filter(Boolean);
+    const workers = await Worker.find({ userId: { $in: workerIds } })
+      .select("userId workPassStatus totalHoursWorked attendanceRate")
+      .lean();
+
+    // Convert workers to a Map for quick lookup
+    const workerMap = {};
+    workers.forEach((worker) => {
+      workerMap[worker.userId.toString()] = worker;
+    });
 
     const confirmedCandidates = [];
     const pendingCandidates = [];
@@ -50,6 +65,15 @@ exports.getCandidates = async (req, res) => {
 
       const employerName = app.jobId.company ? app.jobId.company.companyLegalName : "Unknown Employer";
       const jobDate = moment(app.jobId.date).format("DD MMM, YY");
+
+      // ✅ Get Worker Data
+      const workerData = workerMap[app.userId._id.toString()] || {};
+      const workPassStatus = workerData.workPassStatus || "Unknown";
+      const totalHoursWorked = workerData.totalHoursWorked || 0;
+      const avgAttendanceRate = workerData.attendanceRate || 100;
+
+      // ✅ Calculate Turn-up Rate
+      const turnUpRate = app.clockInTime ? "Turned Up" : "Did Not Turn Up";
 
       // ✅ Calculate job status
       const today = moment().startOf("day");
@@ -64,7 +88,7 @@ exports.getCandidates = async (req, res) => {
         jobStatus = "Active";
       }
 
-      // ✅ Candidate object
+      // ✅ Candidate object with new data
       const candidate = {
         id: app.userId._id,
         fullName: app.userId.fullName,
@@ -73,6 +97,7 @@ exports.getCandidates = async (req, res) => {
         dob: app.userId.dob ? moment(app.userId.dob).format("DD MMM, YYYY") : "N/A",
         nric: app.userId.nricNumber ? app.userId.nricNumber.replace(/.(?=.{4})/g, "*") : "N/A",
         profilePicture: app.userId.profilePicture || "/static/default-avatar.png",
+        registrationDate: moment(app.userId.createdAt).format("DD MMM, YYYY"), // ✅ Registration Date
         appliedStatus: app.appliedStatus || "Applied",
         confirmedOrStandby: app.isStandby ? "Standby" : "Confirmed",
         job: {
@@ -89,6 +114,7 @@ exports.getCandidates = async (req, res) => {
           endTime: `${app.shiftId.endTime} ${app.shiftId.endMeridian}`,
           clockedIn: app.clockInTime ? moment(app.clockInTime).format("hh:mm A") : "--",
           clockedOut: app.clockOutTime ? moment(app.clockOutTime).format("hh:mm A") : "--",
+          totalHoursWorked, // ✅ Total Working Hours
           wageGenerated: `$${app.shiftId.totalWage}`,
           rateType: app.shiftId.rateType,
           payRate: `$${app.shiftId.payRate}/hr`,
@@ -97,6 +123,9 @@ exports.getCandidates = async (req, res) => {
           vacancyFilled: app.shiftId.vacancyFilled,
           standbyFilled: app.shiftId.standbyFilled,
         },
+        turnUpRate, // ✅ Turn-up Rate
+        avgAttendanceRate, // ✅ Average Attendance Rate
+        workPassStatus, // ✅ Work Pass Status
         completedJobs: 122, // Example static value (fetch from Applications DB if needed)
       };
 
@@ -125,6 +154,122 @@ exports.getCandidates = async (req, res) => {
   }
 };
 
+
+
+exports.getCandidatesByJob = async (req, res) => {
+  try {
+    const { id } = req.params; // Job ID
+    const { status, shiftTime } = req.query; // Filters
+
+    // ✅ Fetch Job with company and outlet details
+    const job = await Job.findById(id)
+      .populate("company", "companyLegalName companyLogo")
+      .populate("outlet", "outletName outletAddress")
+      .populate("shifts", "startTime startMeridian endTime endMeridian vacancy standbyVacancy")
+      .lean();
+
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    // ✅ Ensure `company` exists before accessing properties
+    const employerName = job.company ? job.company.companyLegalName : "Unknown Employer";
+    const jobDate = moment(job.date).format("DD MMM, YY");
+
+    // ✅ Calculate Current Headcount
+    const totalVacancy = job.shifts.reduce((acc, shift) => acc + shift.vacancy, 0);
+    const totalApplied = await Application.countDocuments({ jobId: id });
+
+    const currentHeadCount = `${totalApplied}/${totalVacancy}`;
+
+    // ✅ Fetch all applications
+    const applications = await Application.find({ jobId: id })
+      .populate("userId", "fullName gender phoneNumber dob nricNumber profilePicture")
+      .populate("shiftId")
+      .lean();
+
+    if (!applications.length) return res.status(404).json({ message: "No candidates found" });
+
+    // ✅ Organize candidates into categories
+    const confirmedCandidates = [];
+    const pendingCandidates = [];
+    const standbyCandidates = [];
+
+    applications.forEach((app) => {
+      if (!app.userId || !app.shiftId) return;
+
+      const candidate = {
+        id: app.userId._id,
+        fullName: app.userId.fullName,
+        gender: app.userId.gender || "N/A",
+        mobile: app.userId.phoneNumber || "N/A",
+        dob: app.userId.dob ? moment(app.userId.dob).format("DD MMM, YYYY") : "N/A",
+        nric: app.userId.nricNumber ? app.userId.nricNumber.replace(/.(?=.{4})/g, "*") : "N/A",
+        profilePicture: app.userId.profilePicture || "/static/default-avatar.png",
+        appliedStatus: app.appliedStatus || "Applied",
+        confirmedOrStandby: app.isStandby ? "Standby" : "Confirmed",
+        shift: {
+          date: moment(app.date).format("DD MMM, YYYY"),
+          startTime: `${app.shiftId.startTime} ${app.shiftId.startMeridian}`,
+          endTime: `${app.shiftId.endTime} ${app.shiftId.endMeridian}`,
+          clockedIn: app.clockInTime ? moment(app.clockInTime).format("hh:mm A") : "--",
+          clockedOut: app.clockOutTime ? moment(app.clockOutTime).format("hh:mm A") : "--",
+          wageGenerated: `$${app.shiftId.totalWage}`,
+          rateType: app.shiftId.rateType,
+          payRate: `$${app.shiftId.payRate}/hr`,
+          breakType: app.shiftId.breakType,
+          totalDuration: `${app.shiftId.duration} hrs`,
+          vacancyFilled: app.shiftId.vacancyFilled,
+          standbyFilled: app.shiftId.standbyFilled,
+        },
+        completedJobs: 122, // Example static value (fetch from Applications DB if needed)
+      };
+
+      if (app.appliedStatus === "Applied") confirmedCandidates.push(candidate);
+      else if (app.appliedStatus === "Pending") pendingCandidates.push(candidate);
+      else if (app.isStandby) standbyCandidates.push(candidate);
+    });
+
+    let filteredCandidates = [...confirmedCandidates, ...pendingCandidates, ...standbyCandidates];
+
+    // ✅ Apply filtering
+    if (status) filteredCandidates = filteredCandidates.filter((c) => c.confirmedOrStandby.toLowerCase() === status.toLowerCase());
+    if (shiftTime) filteredCandidates = filteredCandidates.filter((c) => c.shift.startTime === shiftTime);
+
+    // ✅ Determine Job Status (Similar to `getAllJobs`)
+    const today = moment().startOf("day");
+    const jobMomentDate = moment(job.date).startOf("day");
+
+    let jobStatus = "Unknown";
+    if (job.isCancelled) {
+      jobStatus = "Cancelled";
+    } else if (jobMomentDate.isAfter(today)) {
+      jobStatus = "Upcoming";
+    } else if (totalApplied >= totalVacancy) {
+      jobStatus = "Completed";
+    } else {
+      jobStatus = "Active";
+    }
+
+    res.status(200).json({
+      success: true,
+      job: {
+        jobId: job._id,
+        jobName: job.jobName,
+        employer: employerName,
+        date: jobDate,
+        currentHeadCount,
+        jobStatus,
+      },
+      totalCandidates: filteredCandidates.length,
+      confirmedCount: confirmedCandidates.length,
+      pendingCount: pendingCandidates.length,
+      standbyCount: standbyCandidates.length,
+      candidates: filteredCandidates,
+    });
+  } catch (error) {
+    console.error("Error in getCandidatesByJob:", error);
+    res.status(500).json({ error: "Failed to fetch candidates", details: error.message });
+  }
+};
 
 
 
