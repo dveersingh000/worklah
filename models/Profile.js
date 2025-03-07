@@ -21,6 +21,9 @@ const profileSchema = new mongoose.Schema({
   studentIdNumber: { type: String },
   schoolName: { type: String },
   studentCardImage: { type: String, },
+  country: { type: String, required: false },
+  city: { type: String, required: false },
+  town: { type: String, required: false },
 });
 
 module.exports = mongoose.model("Profile", profileSchema);

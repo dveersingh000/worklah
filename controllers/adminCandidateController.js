@@ -5,6 +5,9 @@ const Shift = require("../models/Shift");
 const mongoose = require("mongoose");
 const moment = require("moment");
 const Employer = require("../models/Employer");
+const Profile = require("../models/Profile");
+const Outlet = require("../models/Outlet");
+const Notification = require('../models/Notification'); 
 
 const Worker = require("../models/Worker");
 
@@ -402,23 +405,60 @@ exports.getCandidateProfile = async (req, res) => {
 exports.updateCandidate = async (req, res) => {
   try {
     const { id } = req.params;
-    const { fullName, gender, dob, phoneNumber, email, employmentStatus } = req.body;
+    const { fullName, gender, dob, phoneNumber, email, employmentStatus, status, country, city, town } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid Candidate ID" });
     }
 
     // ✅ Find Candidate
-    const user = await User.findById(id);
+    const user = await User.findById(id).populate("profileId");
     if (!user) return res.status(404).json({ message: "Candidate not found" });
+
+    // ✅ Check if status has changed
+    const previousStatus = user.status;
+    const statusChanged = previousStatus !== status;
 
     // ✅ Update fields
     user.fullName = fullName || user.fullName;
     user.phoneNumber = phoneNumber || user.phoneNumber;
     user.email = email || user.email;
     user.employmentStatus = employmentStatus || user.employmentStatus;
+    user.status = status || user.status;
+
+    if (user.profileId) {
+      const profile = await Profile.findById(user.profileId);
+      profile.gender = gender || profile.gender;
+      profile.dob = dob || profile.dob;
+      profile.country = country || profile.country;
+      profile.city = city || profile.city;
+      profile.town = town || profile.town;
+      await profile.save();
+    }
 
     await user.save();
+
+    // ✅ Send notification if status changed
+    if (statusChanged) {
+      let notificationMessage = '';
+      if (status === 'Verified') {
+        notificationMessage = "Your profile has been verified! You can now apply for jobs.";
+      } else if (status === 'Pending') {
+        notificationMessage = "Your profile is under review. We'll notify you once it's verified.";
+      } else if (status === 'Rejected') {
+        notificationMessage = "Your profile has been rejected. Please check your details and resubmit.";
+      } else if (status === 'Incomplete Profile') {
+        notificationMessage = "Your profile is incomplete. Please fill in all required details.";
+      }
+
+      await Notification.create({
+        userId: user._id,
+        type: 'Admin Update',
+        title: 'Profile Status Update',
+        message: notificationMessage,
+      });
+    }
+    
     res.status(200).json({ success: true, message: "Candidate details updated", user });
   } catch (error) {
     console.error("Error in updateCandidate:", error);

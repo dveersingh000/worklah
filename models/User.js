@@ -18,6 +18,7 @@ const userSchema = new mongoose.Schema(
     eWallet: { type: mongoose.Schema.Types.ObjectId, ref: "Wallet" },
     createdAt: { type: Date, default: Date.now },
     lastLogin: { type: Date },
+    status: { type: String, enum: ['Verified', 'Pending', 'Rejected', 'Incomplete Profile'], default: 'Incomplete Profile' },
   });
 
 module.exports = mongoose.model('User', userSchema);

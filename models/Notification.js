@@ -6,7 +6,7 @@ const notificationSchema = new mongoose.Schema(
     jobId: { type: mongoose.Schema.Types.ObjectId, ref: 'Job', required: false },
     type: {
       type: String,
-      enum: ['Job', 'Payment', 'Message', 'Alert'],
+      enum: ['Job', 'Payment', 'Message', 'Alert', 'Admin Update'],
       required: true,
     },
     icon: {
