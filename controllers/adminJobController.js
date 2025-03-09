@@ -58,12 +58,12 @@ exports.getAllJobs = async (req, res) => {
           shiftId: shift._id,
           startTime: `${shift.startTime} ${shift.startMeridian}`,
           endTime: `${shift.endTime} ${shift.endMeridian}`,
-          breakIncluded: `${shift.breakHours} Hrs`,
+          breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
           vacancy: shift.vacancy,
           standbyVacancy: shift.standbyVacancy,
           duration: shift.duration,
-          payRate: shift.payRate,
-          totalWage: shift.totalWage,
+          payRate: `$${shift.payRate}`,
+          totalWage: `$${shift.totalWage}`,
         };
       });
 
@@ -72,7 +72,6 @@ exports.getAllJobs = async (req, res) => {
         standbyApplications: 0,
       };
 
-      const totalWage = shiftsArray.reduce((acc, shift) => acc + shift.totalWage, 0);
 
       // Determine Job Status Logic
       const today = moment().startOf("day");
@@ -107,7 +106,7 @@ exports.getAllJobs = async (req, res) => {
         numberOfShifts: totalShifts,
         vacancyUsers: `${applicationStats.totalApplications}/${totalVacancy}`,
         standbyUsers: `${applicationStats.standbyApplications}/${totalStandby}`,
-        totalWage: totalWage,
+        totalWage: `$${shiftsArray.reduce((acc, shift) => acc + parseFloat(shift.totalWage.replace("$", "")), 0)}`,
         jobStatus, // Now dynamically set
         shiftSummary: { totalVacancy, totalStandby, totalShifts },
         shifts: shiftsArray,
@@ -189,18 +188,21 @@ exports.getJobById = async (req, res) => {
 
       return {
         shiftId: shift._id,
-        startTime: `${shift.startTime} ${shift.startMeridian}`,
-        endTime: `${shift.endTime} ${shift.endMeridian}`,
+        startTime: shift.startTime,
+        startMeridian: shift.startMeridian,
+        endTime: shift.endTime,
+        endMeridian: shift.endMeridian,
         totalDuration: `${shift.duration} Hrs`,
-        breakIncluded: `${shift.breakHours} Hrs ${shift.breakType}`,
+        breakIncluded: shift.breakHours,
         breakType: shift.breakType,
         rateType: shift.rateType,
         vacancy: shift.vacancy,
         standbyVacancy: shift.standbyVacancy,
-        payRate: `$${shift.payRate}/hr`,
-        totalWage: `$${shift.totalWage}`,
+        payRate: shift.payRate,
+        totalWage: shift.totalWage,
       };
     });
+    const totalWage = shiftsArray.reduce((acc, shift) => acc + shift.totalWage, 0);
 
     // Determine Job Status Logic
     const today = moment().startOf("day");
@@ -262,7 +264,7 @@ exports.getJobById = async (req, res) => {
       standbyUsers: `${jobApplications.standbyApplications}/${totalStandby}`, // ✅ Standby count
       shiftSummary, // Summary of shifts
       shifts: shiftsArray, // ✅ Flattened shift data for frontend ease
-      totalWage: `$${shiftsArray.reduce((acc, shift) => acc + parseFloat(shift.totalWage.replace("$", "")), 0)}`,
+      totalWage: totalWage,
       shiftCancellationPenalties, // Static penalties
     };
 
