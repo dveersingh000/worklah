@@ -404,8 +404,10 @@ exports.updateJob = async (req, res) => {
     const createdShifts = await Shift.insertMany(
       shifts.map((shift) => ({
         job: job._id,
-        startTime: `${shift.startTime} ${shift.startMeridian}`,
-        endTime: `${shift.endTime} ${shift.endMeridian}`,
+        startTime: shift.startTime,
+        startMeridian: shift.startMeridian,
+        endTime: shift.endTime,
+        endMeridian: shift.endMeridian,
         vacancy: shift.vacancy,
         standbyVacancy: shift.standbyVacancy,
         duration: shift.duration,
