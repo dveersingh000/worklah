@@ -281,54 +281,49 @@ exports.getJobById = async (req, res) => {
     const shiftsByDate = {};
     shifts.forEach(shift => {
       const shiftDate = moment(shift.date).format("YYYY-MM-DD");
-      
-      // Determine standby availability
-      const isFullyBooked = shift.appliedShifts >= shift.vacancy;
-      const hasStandbyVacancies = shift.standbyVacancy > 0;
+
+      const totalApplied = shift.appliedShifts.length;
+      const isFullyBooked = totalApplied >= shift.vacancy;
+      const hasStandbyVacancies = shift.standbyVacancy > shift.standbyFilled;
 
       if (!shiftsByDate[shiftDate]) {
         shiftsByDate[shiftDate] = [];
       }
 
-      // Include shift only if not fully booked OR if standby vacancies exist
-      if (!isFullyBooked || hasStandbyVacancies) {
-        shiftsByDate[shiftDate].push({
-          id: shift._id,
-          startTime: moment(shift.startTime, "HH:mm").format("hh:mm A"),
-          endTime: moment(shift.endTime, "HH:mm").format("hh:mm A"),
-          duration: shift.duration,
-          breakDuration: shift.breakHours,
-          breakPaid: shift.breakType,
-          hourlyRate: shift.rateType,
-          payRate: `$${shift.payRate}`,
-          totalWage: `$${shift.payRate * shift.duration}`,
-          vacancy: `${shift.appliedShifts.length}/${shift.vacancy}`,
-          standbyVacancy: shift.standbyVacancy > 0 ? 
-                      `${shift.appliedShifts.length}/${shift.standbyVacancy}` : "-/-",
-          isSelected: shift.appliedShifts.includes(userId),
-          // appliedShifts: shift.appliedShifts || 0,
-          // availableShifts: shift.vacancy - shift.appliedShifts, 
-          standbyAvailable: hasStandbyVacancies,
-          standbyMessage: hasStandbyVacancies 
-            ? "This shift is fully booked. You can apply as a standby worker."
-            : null,
-        });
-      }
+      // ✅ Ensure standby is only available when normal vacancies are full
+      const standbyAvailable = isFullyBooked && hasStandbyVacancies;
+
+      shiftsByDate[shiftDate].push({
+        id: shift._id,
+        startTime: moment(shift.startTime, "HH:mm").format("hh:mm A"),
+        endTime: moment(shift.endTime, "HH:mm").format("hh:mm A"),
+        duration: shift.duration,
+        breakDuration: shift.breakHours,
+        breakPaid: shift.breakType,
+        hourlyRate: shift.rateType,
+        payRate: `$${shift.payRate}`,
+        totalWage: `$${shift.payRate * shift.duration}`,
+        vacancy: `${shift.vacancyFilled}/${shift.vacancy}`,
+        
+        // 🔹 Fix: Always Show Standby Vacancy
+        standbyVacancy: `${shift.standbyFilled}/${shift.standbyVacancy}`,
+
+        isSelected: shift.appliedShifts.includes(userId),
+        standbyAvailable: standbyAvailable,
+        standbyMessage: standbyAvailable 
+          ? "This shift is fully booked. You can apply as a standby worker."
+          : null,
+      });
     });
 
     // Collect all available job dates
     const availableShiftsData = Object.keys(shiftsByDate).map(date => ({
       date: moment(date).format("D ddd MMM"),
       appliedShifts: shiftsByDate[date].reduce((sum, shift) => 
-        sum + (Array.isArray(shift.appliedShifts) && shift.appliedShifts.includes(userId) ? 1 : 0), 0), 
+        sum + (shift.isSelected ? 1 : 0), 0), 
       availableShifts: shiftsByDate[date].length,
       shifts: shiftsByDate[date],
     }));
-
-    // Calculate total potential wage and total pay rate
-    // const totalPotentialWages = shifts.reduce((sum, shift) => sum + (shift.payRate * shift.duration), 0);
-    // const totalPayRate = shifts.reduce((sum, shift) => sum + shift.payRate, 0);
-    const totalVacancies = shifts.reduce((sum, shift) => sum + shift.vacancy, 0);
 
     // Final formatted job response
     const formattedJob = {
@@ -347,20 +342,15 @@ exports.getJobById = async (req, res) => {
         image: job.outlet.outletImage,
       },
       location: job.location,
-      // industry: job.industry,
       jobScope: job.jobScope,
       jobRequirements: job.jobRequirements,
-      // salary: `$${totalPotentialWages}`,
-      // totalPotentialWages: `$${totalPotentialWages}`,
-      // totalPayRate: `$${totalPayRate}`,
-      totalVacancies,
+      totalVacancies: shifts.reduce((sum, shift) => sum + shift.vacancy, 0),
       applied: applied ? true : false,
       profileCompleted: user?.profileCompleted || false,
       availableShiftsData,
       jobCategory: job.industry,
-      standbyFeature: true, // Indicates if standby is available for any shift
-      standbyDisclaimer:
-        "Applying for a standby shift means you will only be activated if a vacancy arises. You will be entitled to an additional $10 upon shift completion. No-shows will result in penalties.",
+      standbyFeature: true,
+      standbyDisclaimer: "Applying for a standby shift means you will only be activated if a vacancy arises.",
     };
 
     res.status(200).json({ job: formattedJob });
@@ -369,6 +359,8 @@ exports.getJobById = async (req, res) => {
     res.status(500).json({ message: "Internal server error", error });
   }
 };
+
+
 
 
 
@@ -423,9 +415,7 @@ exports.applyForJob = async (req, res) => {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     if (!user.profileCompleted) {
-      return res.status(400).json({
-        error: "Profile not completed. Please complete your profile first.",
-      });
+      return res.status(400).json({ error: "Profile not completed. Please complete your profile first." });
     }
 
     // ✅ Validate Job
@@ -436,34 +426,36 @@ exports.applyForJob = async (req, res) => {
     const shift = await Shift.findById(shiftId);
     if (!shift) return res.status(404).json({ error: "Shift not found" });
 
-    // ✅ Ensure shift belongs to this job
-    // if (!job.shifts.includes(shiftId)) {
-    //   return res.status(400).json({ error: "Shift does not belong to this job" });
-    // }
-
     // ✅ Check if the user has already applied for this shift
-    const existingApplication = await Application.findOne({
-      userId,
-      shiftId,
-      jobId,
-    });
+    const existingApplication = await Application.findOne({ userId, shiftId, jobId });
 
     if (existingApplication) {
       return res.status(400).json({ error: "You have already applied for this shift." });
     }
 
+    // ✅ Ensure shift belongs to this job
+    if (!job.shifts.some((s) => s._id.toString() === shiftId)) {
+      return res.status(400).json({ error: "Shift does not belong to this job" });
+    }
+
     // ✅ Validate Vacancy & Standby Logic
+    const totalApplied = shift.appliedShifts.length;
+    const normalVacancyFull = totalApplied >= shift.vacancy;
+    const standbyAvailable = shift.standbyVacancy > shift.standbyFilled;
+
     if (!isStandby) {
-      // Apply for a normal shift if vacancy is available
-      if (shift.appliedShifts.length < shift.vacancy) {
+      // ✅ Apply for a normal shift if vacancy is available
+      if (!normalVacancyFull) {
         shift.appliedShifts.push(userId);
+        shift.vacancyFilled += 1; // ✅ Increment normal filled vacancy
       } else {
         return res.status(400).json({ error: "No vacancies available. Try standby if available." });
       }
     } else {
-      // Apply for Standby ONLY if shift is FULLY booked
-      if (shift.appliedShifts.length >= shift.vacancy && shift.standbyVacancy > 0) {
-        shift.standbyVacancy -= 1; // Deduct standby slot **ONLY when isStandby is true**
+      // ✅ Apply for Standby ONLY if all normal vacancies are FULL
+      if (normalVacancyFull && standbyAvailable) {
+        shift.standbyShifts.push(userId);
+        shift.standbyFilled += 1; // ✅ Increment standby filled vacancy
       } else {
         return res.status(400).json({ error: "Standby not available for this shift." });
       }
@@ -510,6 +502,8 @@ exports.applyForJob = async (req, res) => {
     });
   }
 };
+
+
 
 
 // ✅ Configure multer for medical certificate uploads
