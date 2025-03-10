@@ -5,10 +5,14 @@ const {
   scanQRCode,
   getShifts,
   clockIn,
-  clockOut
+  clockOut,
+  getUpcomingShifts,
 } = require("../controllers/qrController");
 
 const router = express.Router();
+
+// ✅ Get all upcoming shifts for a user
+router.get("/upcoming", authMiddleware, getUpcomingShifts);
 
 // ✅ Generate QR Code (Admin-side)
 router.post("/generate", authMiddleware, generateQRCode);

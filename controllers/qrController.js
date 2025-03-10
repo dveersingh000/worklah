@@ -2,6 +2,43 @@ const QRCode = require("qrcode");
 const Job = require("../models/Job");
 const QRCodeModel = require("../models/QRCode");
 const Employer = require("../models/Employer");
+const Application = require("../models/Application");
+const Shift = require("../models/Shift");
+
+exports.getUpcomingShifts = async (req, res) => {
+  try {
+    const userId = req.user.id; // ✅ Get user ID from auth middleware
+
+    // Find all `upcoming` applications for this user
+    const applications = await Application.find({
+      userId,
+      status: "Upcoming",
+    })
+      .populate({
+        path: "jobId",
+        select: "jobName jobIcon company location outlet outletImage",
+        populate: [
+          { path: "company", select: "companyLegalName _id companyLogo" }, // ✅ Populate Employer Name & ID
+          { path: "outlet", select: "outletName _id" }, // ✅ Populate Outlet Name & ID
+        ],
+      })
+      .populate({
+        path: "shiftId",
+        select: "startTime startMeridian endTime endMeridian duration vacancy payRate breakHours breakType",
+      })
+      .sort({ date: 1 });
+
+    if (!applications.length) {
+      return res.status(404).json({ message: "No upcoming shifts found." });
+    }
+
+    res.status(200).json({ shifts: applications });
+  } catch (error) {
+    console.error("Error fetching upcoming shifts:", error);
+    res.status(500).json({ message: "Server error." });
+  }
+};
+
 
 // ✅ Generate QR Code for an Employer
 // exports.generateQRCode = async (req, res) => {
@@ -254,27 +291,50 @@ exports.getShifts = async (req, res) => {
 // ✅ Worker Clicks "Clock-In" After Scanning QR
 exports.clockIn = async (req, res) => {
   try {
-    const { jobId, shiftId, latitude, longitude } = req.body;
-    const userId = req.user.id; // Authenticated user
+    const { userId, jobId, shiftId, applicationId, qrData, latitude, longitude } = req.body;
 
-    // Validate if the user has applied for this shift
-    const application = await Application.findOne({ userId, jobId, shiftId });
-    if (!application) {
-      return res.status(403).json({ success: false, message: "Not applied for this shift" });
+    // ✅ Validate the scanned QR Code
+    const qrCode = await QRCodeModel.findOne({ employerId: qrData.employerId });
+    if (!qrCode) {
+      return res.status(400).json({ message: "Invalid QR Code" });
     }
 
-    if (application.clockInTime) {
-      return res.status(400).json({ success: false, message: "Already clocked in" });
+    // ✅ Ensure the job, shift, and outlet match
+    if (!qrData.jobIds.includes(jobId) || !qrData.shiftIds.includes(shiftId)) {
+      return res.status(400).json({ message: "Shift and job do not match QR data" });
     }
 
-    // Mark Clock-in
-    application.clockInTime = new Date();
-    application.checkInLocation = { latitude, longitude };
-    await application.save();
+    // ✅ Check if the user is already clocked in
+    const existingAttendance = await Attendance.findOne({
+      userId,
+      shiftId,
+      jobId,
+      applicationId,
+      clockInTime: { $exists: true },
+      clockOutTime: { $exists: false }, // Ensure user hasn't clocked out yet
+    });
 
-    res.json({ message: "Clock-in successful", clockInTime: application.clockInTime });
+    if (existingAttendance) {
+      return res.status(400).json({ message: "You are already clocked in" });
+    }
+
+    // ✅ Save clock-in record
+    const newAttendance = new Attendance({
+      userId,
+      jobId,
+      shiftId,
+      applicationId,
+      date: new Date(),
+      clockInTime: new Date(),
+      checkInLocation: { latitude, longitude },
+      status: "Clocked In",
+    });
+
+    await newAttendance.save();
+    res.status(200).json({ message: "Clock In Successful", attendance: newAttendance });
+
   } catch (error) {
-    console.error("Clock-In Error:", error);
+    console.error("Clock In Error:", error);
     res.status(500).json({ message: "Server error", error });
   }
 };
@@ -282,28 +342,33 @@ exports.clockIn = async (req, res) => {
 // ✅ Worker Clicks "Clock-Out"
 exports.clockOut = async (req, res) => {
   try {
-    const { jobId, shiftId } = req.body;
-    const userId = req.user.id; // Authenticated user
+    const { userId, jobId, shiftId, applicationId, latitude, longitude } = req.body;
 
-    // Find application
-    const application = await Application.findOne({ userId, jobId, shiftId });
-    if (!application) return res.status(403).json({ message: "You have not applied for this shift" });
+    // ✅ Find the active attendance record
+    const attendance = await Attendance.findOne({
+      userId,
+      jobId,
+      shiftId,
+      applicationId,
+      clockInTime: { $exists: true },
+      clockOutTime: { $exists: false }, // Ensure user hasn't clocked out yet
+    });
 
-    if (!application.clockInTime) {
-      return res.status(400).json({ message: "You haven't clocked in yet" });
+    if (!attendance) {
+      return res.status(400).json({ message: "No active clock-in found" });
     }
 
-    if (application.clockOutTime) {
-      return res.status(400).json({ message: "You have already clocked out" });
-    }
+    // ✅ Save clock-out timestamp
+    attendance.clockOutTime = new Date();
+    attendance.checkOutLocation = { latitude, longitude };
+    attendance.status = "Clocked Out";
 
-    // Mark Clock-out
-    application.clockOutTime = new Date();
-    await application.save();
+    await attendance.save();
+    res.status(200).json({ message: "Clock Out Successful", attendance });
 
-    res.json({ message: "Clock-out successful", clockOutTime: application.clockOutTime });
   } catch (error) {
-    console.error("Clock-Out Error:", error);
+    console.error("Clock Out Error:", error);
     res.status(500).json({ message: "Server error", error });
   }
 };
+
