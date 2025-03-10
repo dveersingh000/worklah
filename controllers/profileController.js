@@ -371,7 +371,7 @@ exports.getProfileStats = async (req, res) => {
 
       // Add Complete Profile Data to the Response
       Object.assign(response, {
-        accountStatus: "Verified", // Hardcoded as verified for now
+        accountStatus: user.status, // Hardcoded as verified for now
         rating: 4.8, // Example rating
         id: user._id,
         profileCompleted: user.profileCompleted,

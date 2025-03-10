@@ -19,7 +19,7 @@ router.post(
   );
 
 // ✅ Route: Complete Profile with Image Uploads
-router.post(
+router.put(
   "/complete-profile",
   authMiddleware,
   uploadGeneral.fields([
