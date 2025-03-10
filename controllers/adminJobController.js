@@ -192,7 +192,7 @@ exports.getJobById = async (req, res) => {
         startMeridian: shift.startMeridian,
         endTime: shift.endTime,
         endMeridian: shift.endMeridian,
-        totalDuration: `${shift.duration} Hrs`,
+        totalDuration: shift.duration,
         breakIncluded: shift.breakHours,
         breakType: shift.breakType,
         rateType: shift.rateType,
