@@ -94,41 +94,54 @@ exports.createJob = async (req, res) => {
 
 exports.searchJobs = async (req, res) => {
   try {
-    // console.log('94..................')
     const { jobName, employerId, selectedDate } = req.query;
-
     let filters = {};
-    let jobs=[];
 
     // ✅ Search by job name (case-insensitive)
-    if (jobName) filters.jobName = { $regex: jobName, $options: "i" };
+    if (jobName) {
+      filters.jobName = { $regex: jobName, $options: "i" };
+    }
 
-    // ✅ Filter by employer ID (Only if valid ObjectId)
+    // ✅ Filter by employer ID (Ensure Correct `_id` Check)
     if (employerId && mongoose.Types.ObjectId.isValid(employerId)) {
-      filters.company =new  mongoose.Types.ObjectId(employerId);
-      //jobs=Job.populate('company','companyEmail accountManager');
-      // console.log(jobs,"...........................107")
+      filters.company = new mongoose.Types.ObjectId(employerId);
     }
 
-    // ✅ Correct Date Format Filtering
+    // ✅ Correct Date Filtering (Use Start & End of the Day)
     if (selectedDate) {
-      filters["date"] = selectedDate; // Ensure the date format matches
+      const date = new Date(selectedDate);
+      const startOfDay = new Date(date.setHours(0, 0, 0, 0)); // Start of selected day
+      const endOfDay = new Date(date.setHours(23, 59, 59, 999)); // End of selected day
+
+      filters.date = {
+        $gte: startOfDay.toISOString(), // Start of the selected day
+        $lte: endOfDay.toISOString(), // End of the selected day
+      };
     }
 
-     jobs = await Job.find(filters)
+    // ✅ Log Applied MongoDB Filters (For Debugging)
+    // console.log("🛠 Applied Filters:", JSON.stringify(filters, null, 2));
+
+    // ✅ Fetch Jobs Matching the Filters (Ensure All Fields Are Populated)
+    const jobs = await Job.find(filters)
       .populate("company", "companyLegalName companyLogo")
       .populate("outlet", "outletName location outletImage");
 
+    // console.log("📢 Jobs Found:", jobs.length);
 
+    // ✅ Return Filtered Jobs
     res.status(200).json({ success: true, jobs });
   } catch (error) {
-    console.error("Error in searchJobs:", error);
+    // console.error("❌ Error in searchJobs:", error);
     res.status(500).json({
       error: "Failed to search jobs",
       details: error.message,
     });
   }
 };
+
+
+
 
 
 exports.getEmployersList=async(req,res)=>{
