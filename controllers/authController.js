@@ -2,6 +2,53 @@ const User = require('../models/User');
 const { verifyOTP, sendOTP } = require('../utils/otpUtils');
 const { generateToken } = require('../utils/jwtUtils');
 const Notification = require('../models/Notification');
+const jwt = require("jsonwebtoken");
+const dotenv = require("dotenv");
+dotenv.config();
+
+exports.validateToken = async (req, res) => {
+  try {
+    // Extract token from headers
+    const token = req.headers.authorization?.split(" ")[1];
+
+    if (!token) {
+      return res.status(401).json({ message: "Unauthorized: No token provided" });
+    }
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Fetch user from database
+    const user = await User.findById(decoded.id || decoded._id).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // ✅ Token is valid, return success
+    res.status(200).json({
+      message: "Token is valid",
+      user: {
+        id: user._id,
+        fullName: user.fullName,
+        phoneNumber: user.phoneNumber,
+        email: user.email,
+        employmentStatus: user.employmentStatus,
+        profilePicture: user.profilePicture,
+        profileCompleted: user.profileCompleted,
+      },
+      expiresIn: 7200, // Optional: Token validity in seconds (2 hours)
+    });
+
+  } catch (error) {
+    if (error.name === "TokenExpiredError") {
+      return res.status(401).json({ message: "Unauthorized: Token has expired" });
+    }
+
+    console.error("Token validation error:", error);
+    return res.status(401).json({ message: "Unauthorized: Invalid token" });
+  }
+};
 
 exports.getUserDynamicDetails = async (req, res) => {
   try {
