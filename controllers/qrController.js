@@ -8,11 +8,14 @@ const Shift = require("../models/Shift");
 exports.getUpcomingShifts = async (req, res) => {
   try {
     const userId = req.user.id; // ✅ Get user ID from auth middleware
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset time for date comparison
 
-    // Find all `upcoming` applications for this user
+    // Find all `upcoming` applications sorted by date
     const applications = await Application.find({
       userId,
       status: "Upcoming",
+      date: { $gte: today }, // ✅ Only fetch future shifts
     })
       .populate({
         path: "jobId",
@@ -26,18 +29,28 @@ exports.getUpcomingShifts = async (req, res) => {
         path: "shiftId",
         select: "startTime startMeridian endTime endMeridian duration vacancy payRate breakHours breakType",
       })
-      .sort({ date: 1 });
+      .sort({ date: 1 }); // ✅ Sort by closest date first
 
     if (!applications.length) {
       return res.status(404).json({ message: "No upcoming shifts found." });
     }
 
-    res.status(200).json({ shifts: applications });
+    // ✅ Get the **earliest upcoming shift date**
+    const nearestDate = applications[0].date;
+
+    // ✅ Filter shifts that match the **nearest upcoming date**
+    const filteredShifts = applications.filter((shift) =>
+      new Date(shift.date).toISOString().slice(0, 10) ===
+      new Date(nearestDate).toISOString().slice(0, 10)
+    );
+
+    res.status(200).json({ shifts: filteredShifts });
   } catch (error) {
     console.error("Error fetching upcoming shifts:", error);
     res.status(500).json({ message: "Server error." });
   }
 };
+
 
 
 // ✅ Generate QR Code for an Employer

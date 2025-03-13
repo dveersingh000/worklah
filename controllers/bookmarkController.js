@@ -115,3 +115,33 @@ exports.getBookMarks = async (req, res) => {
   }
 };
 
+exports.removeBookMark = async (req, res) => {
+  try {
+    const { jobId, userId } = req.body;
+
+    if (!jobId || !userId) {
+      return res.status(400).json({ success: false, message: "Missing jobId or userId" });
+    }
+
+    const bookmark = await BookMark.findOne({ jobId, userId });
+
+    if (!bookmark) {
+      return res.status(404).json({ success: false, message: "Bookmark not found" });
+    }
+
+    // ✅ Set status to false instead of deleting
+    bookmark.status = false;
+    await bookmark.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Bookmark removed successfully",
+    });
+
+  } catch (error) {
+    console.error("❌ Error removing bookmark:", error);
+    res.status(500).json({ success: false, message: "Server error", error });
+  }
+};
+
+
