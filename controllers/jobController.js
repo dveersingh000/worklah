@@ -94,7 +94,7 @@ exports.createJob = async (req, res) => {
 
 exports.searchJobs = async (req, res) => {
   try {
-    const { jobName, employerId, selectedDate } = req.query;
+    const { jobName, employerName, outletName, location, employerId, selectedDate } = req.query;
     let filters = {};
 
     // ✅ Search by job name (case-insensitive)
@@ -110,35 +110,100 @@ exports.searchJobs = async (req, res) => {
     // ✅ Correct Date Filtering (Use Start & End of the Day)
     if (selectedDate) {
       const date = new Date(selectedDate);
-      const startOfDay = new Date(date.setHours(0, 0, 0, 0)); // Start of selected day
-      const endOfDay = new Date(date.setHours(23, 59, 59, 999)); // End of selected day
+      const startOfDay = new Date(date.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(date.setHours(23, 59, 59, 999));
 
       filters.date = {
-        $gte: startOfDay.toISOString(), // Start of the selected day
-        $lte: endOfDay.toISOString(), // End of the selected day
+        $gte: startOfDay.toISOString(),
+        $lte: endOfDay.toISOString(),
       };
     }
 
-    // ✅ Log Applied MongoDB Filters (For Debugging)
-    // console.log("🛠 Applied Filters:", JSON.stringify(filters, null, 2));
+    // ✅ Fetch Jobs with Population
+    let jobs = await Job.find(filters)
+      .populate("company", "companyLegalName companyLogo") // Populate employer
+      .populate("outlet", "outletName outletAddress outletImage") // Populate outlet
+      .populate("shifts"); // Populate shift details
 
-    // ✅ Fetch Jobs Matching the Filters (Ensure All Fields Are Populated)
-    const jobs = await Job.find(filters)
-      .populate("company", "companyLegalName companyLogo")
-      .populate("outlet", "outletName location outletImage");
+    // ✅ Apply Text Filtering on Populated Fields
+    if (employerName) {
+      jobs = jobs.filter((job) =>
+        job.company?.companyLegalName?.toLowerCase().includes(employerName.toLowerCase())
+      );
+    }
 
-    // console.log("📢 Jobs Found:", jobs.length);
+    if (outletName) {
+      jobs = jobs.filter((job) =>
+        job.outlet?.outletName?.toLowerCase().includes(outletName.toLowerCase())
+      );
+    }
 
-    // ✅ Return Filtered Jobs
-    res.status(200).json({ success: true, jobs });
+    if (location) {
+      jobs = jobs.filter((job) =>
+        job.outlet?.outletAddress?.toLowerCase().includes(location.toLowerCase())
+      );
+    }
+
+    // ✅ Compute Additional Fields (`outletTiming`, `estimatedWage`, `payRatePerHour`, `slotLabel`)
+    const jobsWithPlanData = jobs.map((job) => {
+      const shifts = job.shifts || [];
+
+      if (shifts.length === 0) {
+        return {
+          ...job.toObject(),
+          outletTiming: "Not Available",
+          estimatedWage: 0,
+          payRatePerHour: "Not Available",
+          slotLabel: "New",
+        };
+      }
+
+      // Get the 1st shift start & end time
+      const firstShift = shifts[0];
+      const outletTiming = `${firstShift.startTime}${firstShift.startMeridian} - ${firstShift.endTime}${firstShift.endMeridian}`;
+
+      // Calculate total estimated wage (sum of all shifts)
+      const estimatedWage = shifts.reduce((sum, shift) => sum + shift.totalWage, 0);
+
+      // Get a distinct pay rate per hour from shifts (assumes uniform rate)
+      const payRatePerHour = `$${firstShift.payRate}/hr`;
+
+      // Determine slot label logic
+      let slotLabel = "New";
+      const totalVacancies = shifts.reduce((sum, shift) => sum + shift.vacancy, 0);
+      const totalStandby = shifts.reduce((sum, shift) => sum + shift.standbyVacancy, 0);
+
+      if (totalVacancies >= 10) {
+        slotLabel = "Trending";
+      } else if (totalVacancies > 3) {
+        slotLabel = "Limited Slots";
+      } else if (totalVacancies === 1) {
+        slotLabel = "Last Slot";
+      } else if (totalVacancies === 0 && totalStandby > 0) {
+        slotLabel = "Standby Slot Available";
+      }
+
+      return {
+        ...job.toObject(),
+        outletTiming,
+        estimatedWage,
+        payRatePerHour,
+        slotLabel,
+        shortAddress: job.shortAddress || "Not Available",
+      };
+    });
+
+    res.status(200).json({ success: true, jobs: jobsWithPlanData });
   } catch (error) {
-    // console.error("❌ Error in searchJobs:", error);
+    console.error("❌ Error in searchJobs:", error);
     res.status(500).json({
       error: "Failed to search jobs",
       details: error.message,
     });
   }
 };
+
+
 
 
 
@@ -203,7 +268,7 @@ exports.getAllJobs = async (req, res) => {
       const estimatedWage = shifts.reduce((sum, shift) => sum + shift.totalWage, 0);
 
       // Get a distinct pay rate per hour from shifts (assumes uniform rate)
-      const payRatePerHour = `$${firstShift.payRate}/Hr`;
+      const payRatePerHour = `$${firstShift.payRate}/hr`;
 
       // Determine slot label logic
       let slotLabel = "New";
