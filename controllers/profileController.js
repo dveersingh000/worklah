@@ -57,6 +57,7 @@ exports.uploadProfilePicture = async (req, res) => {
     return res.status(200).json({
       message: "Profile picture updated successfully.",
       imageUrl: updatedUser.profilePicture,
+      user: updatedUser, 
     });
   } catch (error) {
     return res.status(500).json({
