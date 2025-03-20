@@ -3,24 +3,66 @@ const User = require("../models/User");
 const Application = require("../models/Application");
 const Job = require("../models/Job");
 const mongoose = require("mongoose");
+const cloudinary = require("../config/cloudinary");
 
 
-// ✅ Upload Profile Picture
+// ✅ Upload Profile Picture (Supports File & Base64)
 exports.uploadProfilePicture = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No image uploaded." });
+    const userId = req.user.id;
+    
+    // ✅ Ensure user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
     }
 
-    const userId = req.user.id;
-    const imageUrl = req.file.path; // Cloudinary image URL
+    let imageUrl;
 
-    // Update User Profile Picture
-    await User.findByIdAndUpdate(userId, { profilePicture: imageUrl });
+    // ✅ If file is uploaded (via Form-Data)
+    if (req.file) {
+      try {
+        const result = await cloudinary.uploader.upload(req.file.path, {
+          folder: "WorkLah/ProfilePictures",
+          resource_type: "image",
+        });
+        imageUrl = result.secure_url;
+      } catch (uploadError) {
+        return res.status(500).json({ error: "Failed to upload image to Cloudinary." });
+      }
+    } 
+    // ✅ If base64 image is sent
+    else if (req.body.image) {
+      try {
+        const result = await cloudinary.uploader.upload(req.body.image, {
+          folder: "WorkLah/ProfilePictures",
+          resource_type: "image",
+        });
+        imageUrl = result.secure_url;
+      } catch (uploadError) {
+        return res.status(500).json({ error: "Failed to upload Base64 image." });
+      }
+    } 
+    // ✅ No valid image data provided
+    else {
+      return res.status(400).json({ error: "No image file or Base64 string provided." });
+    }
 
-    res.status(200).json({ message: "Profile picture updated successfully.", imageUrl });
+    // ✅ Update User Model
+    const updatedUser = await User.findByIdAndUpdate(userId, { profilePicture: imageUrl }, { new: true });
+
+    // ✅ Update Profile Model (if exists)
+    await Profile.findOneAndUpdate({ user: userId }, { profilePicture: imageUrl }, { new: true });
+
+    return res.status(200).json({
+      message: "Profile picture updated successfully.",
+      imageUrl: updatedUser.profilePicture,
+    });
   } catch (error) {
-    res.status(500).json({ error: "Failed to upload profile picture.", details: error.message });
+    return res.status(500).json({
+      error: "An unexpected error occurred.",
+      details: error.message,
+    });
   }
 };
 
