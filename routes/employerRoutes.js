@@ -3,6 +3,7 @@ const multer = require("multer");
 const {
   getEmployers,
   getEmployerById,
+  getOutletOverview,
   createEmployer,
   updateEmployer,
   deleteEmployer,
@@ -22,6 +23,7 @@ const upload = multer({ storage });
 
 router.get('/', getEmployers);
 router.get('/:id', getEmployerById);
+router.get("/:outletId/overview", getOutletOverview);
 router.post("/create", upload.fields([{ name: "companyLogo" }, { name: "acraCertificate" }]), createEmployer);
 router.put('/:id', updateEmployer);
 router.delete('/:id', deleteEmployer);

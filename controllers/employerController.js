@@ -1,6 +1,8 @@
 const Employer = require("../models/Employer");
 const Outlet = require("../models/Outlet");
 const Job = require("../models/Job");
+const Shift = require("../models/Shift");
+const Application = require("../models/Application");
 const moment = require("moment");
 
 const axios = require("axios");
@@ -175,35 +177,177 @@ exports.getEmployers = async (req, res) => {
 
 exports.getEmployerById = async (req, res) => {
   try {
-    // ✅ Fetch employer details with outlets
     const employer = await Employer.findById(req.params.id).populate("outlets");
 
     if (!employer) {
       return res.status(404).json({ message: "Employer not found" });
     }
 
-    // ✅ Fetch jobs associated with this employer
-    const jobs = await Job.find({ company: employer._id }).populate("shifts", "vacancy date");
+    // ✅ Fetch jobs with outlet and shift details
+    const jobs = await Job.find({ company: employer._id })
+      .populate("outlet", "outletName outletAddress")
+      .populate("shifts");
 
-    // ✅ Count active jobs
     const today = moment().startOf("day");
-    const activeJobPostings = jobs.filter((job) => {
+    let activeJobPostings = 0;
+
+    const formattedJobs = jobs.map((job) => {
+      const totalAvailableShifts = job.shifts.length;
+
+      // ✅ Determine if job is "active"
       const jobDate = moment(job.date).startOf("day");
       const totalVacancy = job.shifts.reduce((sum, shift) => sum + shift.vacancy, 0);
-      return jobDate.isSameOrAfter(today) && totalVacancy > 0; // ✅ Active Jobs
-    }).length;
 
-    // ✅ Count number of outlets
-    const numberOfOutlets = employer.outlets.length;
+      if (jobDate.isSameOrAfter(today) && totalVacancy > 0) {
+        activeJobPostings++;
+      }
 
-    res.status(200).json({
+      const shiftSummary = job.shifts.map((shift) => ({
+        startTime: shift.startTime,
+        startMeridian: shift.startMeridian,
+        endTime: shift.endTime,
+        endMeridian: shift.endMeridian,
+        breakHours: shift.breakHours,
+        breakType: shift.breakType,
+        rateType: shift.rateType,
+        payRate: shift.payRate,
+        totalWage: shift.totalWage,
+        duration: shift.duration,
+        vacancy: shift.vacancy,
+        vacancyFilled: shift.vacancyFilled || 0,
+        standbyVacancy: shift.standbyVacancy,
+        standbyFilled: shift.standbyFilled || 0,
+      }));
+
+      return {
+        _id: job._id,
+        jobName: job.jobName,
+        jobStatus: jobDate.isBefore(today) ? "Completed" : "Upcoming",
+        jobIcon: job.jobIcon || "/static/jobIcon.png",
+        address: job.outlet?.outletAddress || "N/A",
+        outletName: job.outlet?.outletName || "N/A",
+        date: moment(job.date).format("DD MMM, YY"),
+        shifts: shiftSummary,
+      };
+    });
+
+    return res.status(200).json({
       employer,
-      activeJobPostings, // ✅ Fixed Active Job Postings Count
-      numberOfOutlets, // ✅ Number of Outlets Count
+      activeJobPostings,
+      numberOfOutlets: employer.outlets.length,
+      jobs: formattedJobs,
     });
   } catch (error) {
     console.error("Error fetching employer:", error);
-    res.status(500).json({ message: "Internal server error", error });
+    return res.status(500).json({ message: "Internal server error", error });
+  }
+};
+
+exports.getOutletOverview = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid outlet ID" });
+    }
+
+    const outlet = await Outlet.findById(id).populate("employer", "companyLegalName").lean();
+    if (!outlet) return res.status(404).json({ message: "Outlet not found" });
+
+    // Fetch jobs related to this outlet
+    const jobs = await Job.find({ outlet: id })
+      .populate("shifts")
+      .lean();
+
+    const totalJobsPosted = jobs.length;
+
+    let activeJobs = 0;
+    let attendanceSum = 0;
+    let noShowCount = 0;
+    let totalShifts = 0;
+    const roleFrequency = {};
+
+    const jobList = [];
+
+    for (const job of jobs) {
+      const jobDate = moment(job.date).startOf("day");
+      const today = moment().startOf("day");
+
+      const shifts = job.shifts || [];
+      const shiftCount = shifts.length;
+
+      let totalDuration = 0;
+      let totalVacancy = 0;
+      let filledVacancy = 0;
+      let standbyFilled = 0;
+      let totalWage = 0;
+
+      for (const shift of shifts) {
+        totalDuration += shift.duration || 0;
+        totalVacancy += shift.vacancy || 0;
+        filledVacancy += shift.vacancyFilled || 0;
+        standbyFilled += shift.standbyFilled || 0;
+        totalWage += shift.totalWage || 0;
+
+        const attendanceRate = (shift.vacancyFilled / (shift.vacancy || 1)) * 100;
+        attendanceSum += attendanceRate;
+        totalShifts++;
+
+        if (attendanceRate < 50) noShowCount++;
+      }
+
+      // Count active job
+      if (jobDate.isSameOrAfter(today) && totalVacancy > 0) activeJobs++;
+
+      // Count top roles
+      roleFrequency[job.jobName] = (roleFrequency[job.jobName] || 0) + 1;
+
+      // Push job details for the table
+      jobList.push({
+        jobId: job._id,
+        jobName: job.jobName,
+        jobStatus: job.jobStatus || (jobDate.isBefore(today) ? "Completed" : "Active"),
+        date: moment(job.date).format("DD MMM, YY"),
+        shifts: shiftCount,
+        totalDuration: `${totalDuration} Hrs`,
+        break: shifts[0]?.breakHours ? `${shifts[0].breakHours} Hrs (${shifts[0].breakType})` : "N/A",
+        rate: shifts[0]?.payRate ? `$${shifts[0].payRate}/hr` : "N/A",
+        rateType: shifts[0]?.rateType || "N/A",
+        vacancyFilled: `${filledVacancy}/${totalVacancy}`,
+        standbyFilled,
+        totalPay: `$${totalWage}`,
+      });
+    }
+
+    // Top 3 most frequent job roles
+    const topRoles = Object.entries(roleFrequency)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(entry => entry[0]);
+
+    const avgAttendance = totalShifts > 0 ? (attendanceSum / totalShifts).toFixed(2) : 0;
+    const noShowRate = totalShifts > 0 ? ((noShowCount / totalShifts) * 100).toFixed(2) : 0;
+
+    return res.status(200).json({
+      outletDetails: {
+        name: outlet.outletName,
+        address: outlet.outletAddress,
+        contact: "+65 1234 5678", // Placeholder
+        email: "dominos@gmail.com", // Placeholder
+        employer: outlet.employer?.companyLegalName,
+      },
+      stats: {
+        totalJobsPosted,
+        activeJobs,
+        averageAttendanceRate: `${avgAttendance}%`,
+        noShowRate: `${noShowRate}%`,
+        topRolesPosted: topRoles
+      },
+      jobs: jobList,
+    });
+  } catch (error) {
+    console.error("Error in getOutletOverview:", error);
+    res.status(500).json({ message: "Internal server error", error: error.message });
   }
 };
 
