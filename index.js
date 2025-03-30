@@ -36,28 +36,33 @@ const hustleHeroesRoutes = require("./routes/hustleHeroesRoutes");
 const bookmarkRoutes=require('./routes/bookmarkRoutes')
 
 // Middleware
+const cors = require("cors");
+
+const allowedOrigins = [
+  "http://localhost:5173",                  // Vite local dev
+  "http://127.0.0.1:5173",                  // Localhost (IPv4)
+  "http://localhost",                      // Flutter web
+  "http://127.0.0.1",                      // Emulator or test
+  "https://work-lah-admin-panel.vercel.app" // ✅ Deployed Vercel frontend (no slash)
+];
+
 app.use(cors({
   origin: function (origin, callback) {
-    const allowedOrigins = [
-      "http://localhost:5173",  // ✅ Allow Vite frontend
-      "http://127.0.0.1:5173",  // ✅ Allow Vite frontend (IPv4)
-      "http://localhost",        // ✅ Allow localhost (For Flutter web)
-      "http://127.0.0.1",        // ✅ Allow localhost (For Flutter emulator)
-      "https://work-lah-admin-panel.vercel.app/",  // ✅ Vercel Deployed Frontend (Replace with your actual Vercel URL)
-      "*",                       // ✅ Allow all origins (Flutter Mobile)
-    ];
-
     if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost")) {
-      callback(null, true);  // ✅ Allow request
+      callback(null, true);  // ✅ Allow
     } else {
-      callback(new Error("Not allowed by CORS"));  // ❌ Block request
+      console.error("❌ Blocked by CORS:", origin);
+      callback(new Error("Not allowed by CORS"));  // ❌ Block
     }
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,  // ✅ Allow cookies
+  credentials: true,  // Required if frontend uses cookies or Authorization headers
 }));
+
+// Enable preflight (OPTIONS) for all routes
 app.options("*", cors());
+
 
 app.use(express.json());
 app.use(cookieParser());
