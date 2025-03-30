@@ -56,6 +56,13 @@ const authMiddleware = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     // console.log(decoded);
     // const user = await User.findById('679453f0299e53e4d088f842').select("-password");
+
+    // If admin token (no ID, only role)
+    if (decoded.role === "ADMIN" && !decoded.id && !decoded._id) {
+      req.user = { email: "admin@example.com", fullName: "Admin", role: "ADMIN" };
+      return next();
+    }
+    
     const user = await User.findById(decoded.id || decoded._id).select("-password");
     // console.log(user);
 

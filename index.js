@@ -43,7 +43,7 @@ app.use(cors({
       "http://127.0.0.1:5173",  // ✅ Allow Vite frontend (IPv4)
       "http://localhost",        // ✅ Allow localhost (For Flutter web)
       "http://127.0.0.1",        // ✅ Allow localhost (For Flutter emulator)
-      // "https://your-vercel-app.vercel.app",  // ✅ Vercel Deployed Frontend (Replace with your actual Vercel URL)
+      "https://work-lah-admin-panel.vercel.app/",  // ✅ Vercel Deployed Frontend (Replace with your actual Vercel URL)
       "*",                       // ✅ Allow all origins (Flutter Mobile)
     ];
 
