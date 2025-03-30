@@ -36,7 +36,6 @@ const hustleHeroesRoutes = require("./routes/hustleHeroesRoutes");
 const bookmarkRoutes=require('./routes/bookmarkRoutes')
 
 // Middleware
-const cors = require("cors");
 
 const allowedOrigins = [
   "http://localhost:5173",                  // Vite local dev
