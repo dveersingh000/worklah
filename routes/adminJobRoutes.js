@@ -1,8 +1,10 @@
 const express = require('express');
 const { getAllJobs, getJobById, createJob, updateJob, changeJobStatus, deleteJob, duplicateJob, deactivateJob, cancelJob,} = require('../controllers/adminJobController');
+const { authMiddleware, adminOnlyMiddleware } = require("../middlewares/auth");
 const router = express.Router();
 
 // Routes for Admin Job Management
+router.use(authMiddleware, adminOnlyMiddleware);
 router.get('/', getAllJobs); // ✅ Get all jobs with filters
 router.get('/:id', getJobById); // ✅ Get a specific job
 router.post('/', createJob); // ✅ Create a new job

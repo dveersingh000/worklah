@@ -64,31 +64,49 @@ exports.getUserByEmail = async (req, res) => {
 // Login user
 exports.loginUser = async (req, res) => {
     try {
-        const { email, password } = req.body;
-    
-        // Admin login
-        if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-          const token = createToken({ role: 'ADMIN' });
-          setCookie(res, token);
-          return res.json({ user: { email: ADMIN_EMAIL, fullName: 'Admin', role: 'ADMIN' } });
-        }
-    
-        // User login
-        const user = await User.findOne({ email });
-        if (!user || !(await bcrypt.compare(password, user.password))) {
-          return res.status(401).json({ error: 'Invalid credentials' });
-        }
-    
-        user.lastLogin = new Date();
-        await user.save();
-    
-        const token = createToken({ _id: user._id, role: user.role });
+      const { email, password } = req.body;
+  
+      // Admin login
+      if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+        const token = createToken({ role: 'ADMIN' });
         setCookie(res, token);
-        res.json({ user: { email: user.email, fullName: user.fullName, role: user.role } });
-      } catch (error) {
-        res.status(400).json({ error: error.message });
+        return res.json({
+          token, // ✅ send token to frontend explicitly
+          user: {
+            email: ADMIN_EMAIL,
+            fullName: 'Admin',
+            role: 'ADMIN'
+          }
+        });
       }
-};
+  
+      // User login
+const user = await User.findOne({ email });
+const isMatch = user && await bcrypt.compare(password, user.password);
+
+if (!user || !isMatch) {
+  return res.status(401).json({ error: 'Invalid credentials' });
+}
+
+  
+      user.lastLogin = new Date();
+      await user.save();
+  
+      const token = createToken({ _id: user._id, role: user.role });
+      setCookie(res, token);
+      res.json({
+        token, // ✅ send token to frontend explicitly
+        user: {
+          email: user.email,
+          fullName: user.fullName,
+          role: user.role
+        }
+      });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  };
+  
 
 // Update user
 exports.updateUser = async (req, res) => {

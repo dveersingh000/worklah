@@ -3,85 +3,51 @@ const dotenv = require("dotenv");
 const User = require("../models/User"); 
 dotenv.config();
 
-// Authentication Middleware
-// const authMiddleware = async (req, res, next) => {
-//   try {
-//     const token = req.cookies.token || req.headers.authorization?.split(" ")[1];
-
-//     if (!token) {
-//       return res.status(401).json({ error: "Authentication required." });
-//     }
-
-//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-//     if (decoded.role === "ADMIN") {
-//       req.user = { role: "ADMIN", email: "admin@example.com", fullName: "Admin" };
-//     } else {
-//       const user = await User.findOne({ _id: decoded._id, role: decoded.role });
-
-//       if (!user) {
-//         return res.status(404).json({ error: "User not found." });
-//       }
-
-//       req.user = { email: user.email, fullName: user.fullName, role: user.role };
-//     }
-
-//     next();
-//   } catch (error) {
-//     return res.status(401).json({ error: "Invalid token or authentication failed." });
-//   }
-// };
-
-// // Admin-Only Middleware
-// const adminOnly = (req, res, next) => {
-//   if (req.user.role !== "ADMIN") {
-//     return res.status(403).json({ error: "Access denied. Admin only." });
-//   }
-//   next();
-// };
-
-// module.exports = { authMiddleware, adminOnly };
-
-
 const authMiddleware = async (req, res, next) => {
-    const token = req.headers.authorization?.split(" ")[1]; 
-  
+  const token = req.cookies?.token || req.headers.authorization?.split(" ")[1];
+
   if (!token) {
     return res.status(401).json({ message: "Unauthorized: No token provided" });
   }
-// 679453f0299e53e4d088f842
-// console.log(token);
+
   try {
     // Verify the token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    // console.log(decoded);
-    // const user = await User.findById('679453f0299e53e4d088f842').select("-password");
 
-    // If admin token (no ID, only role)
-    if (decoded.role === "ADMIN" && !decoded.id && !decoded._id) {
-      req.user = { email: "admin@example.com", fullName: "Admin", role: "ADMIN" };
+    // ✅ If admin login (role only)
+    if (decoded.role === "ADMIN" && !decoded._id && !decoded.id) {
+      req.user = {
+        email: "admin@example.com",
+        fullName: "Admin",
+        role: "ADMIN"
+      };
       return next();
     }
-    
-    const user = await User.findById(decoded.id || decoded._id).select("-password");
-    // console.log(user);
 
+    // ✅ Regular user (app)
+    const user = await User.findById(decoded.id || decoded._id).select("-password");
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    req.user = user; 
+    req.user = user;
     next();
+
   } catch (error) {
     if (error.name === "TokenExpiredError") {
       return res.status(401).json({ message: "Unauthorized: Token has expired" });
     }
-
-    console.error(error);
+    console.error("Auth error:", error);
     return res.status(401).json({ message: "Unauthorized: Invalid token" });
   }
-
 };
 
+// ✅ Optional: Add admin-only protection (use in routes)
+const adminOnlyMiddleware = (req, res, next) => {
+  if (req.user?.role !== "ADMIN") {
+    return res.status(403).json({ error: "Access denied. Admin only." });
+  }
+  next();
+};
 
-module.exports ={authMiddleware};
+module.exports = { authMiddleware, adminOnlyMiddleware };

@@ -15,7 +15,7 @@ const router = express.Router();
 router.get("/upcoming", authMiddleware, getUpcomingShifts);
 
 // ✅ Generate QR Code (Admin-side)
-router.post("/generate", authMiddleware, generateQRCode);
+router.post("/generate",  generateQRCode);
 
 // ✅ Scan QR Code (Fetch job & shift details)
 router.post("/scan", authMiddleware, scanQRCode);

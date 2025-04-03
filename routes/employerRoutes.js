@@ -8,8 +8,10 @@ const {
   updateEmployer,
   deleteEmployer,
 } = require('../controllers/employerController');
+const { authMiddleware, adminOnlyMiddleware } = require("../middlewares/auth");
 const router = express.Router();
 
+router.use(authMiddleware, adminOnlyMiddleware);
 // ✅ Set up file upload middleware
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {

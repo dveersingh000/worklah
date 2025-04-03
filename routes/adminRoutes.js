@@ -11,9 +11,11 @@ const {
   getNoShowCount,
   getRegisteredUsers,
 } = require('../controllers/adminController');
+const { authMiddleware, adminOnlyMiddleware } = require("../middlewares/auth");
 
 const router = express.Router();
 
+router.use(authMiddleware, adminOnlyMiddleware);
 router.get('/dashboard/overview', getDashboardOverview);
 router.get('/jobs/posted-stats', getJobPostingStats);
 router.get('/revenue/stats', getRevenueStats);
