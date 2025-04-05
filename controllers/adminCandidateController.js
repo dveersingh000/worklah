@@ -25,7 +25,19 @@ exports.getCandidates = async (req, res) => {
     if (jobName) jobQuery.jobName = new RegExp(jobName, "i"); // Case-insensitive search
     if (employer) {
       const employerData = await Employer.findOne({ companyLegalName: new RegExp(employer, "i") });
-      if (employerData) jobQuery.company = employerData._id;
+      if (employerData) {
+        jobQuery.company = employerData._id;
+      } else {
+        // Return early if employer doesn't match — avoids false positives
+        return res.status(200).json({
+          success: true,
+          totalCandidates: 0,
+          confirmedCount: 0,
+          pendingCount: 0,
+          standbyCount: 0,
+          candidates: [],
+        });
+      }
     }
 
     const jobs = await Job.find(jobQuery)
@@ -243,7 +255,25 @@ exports.getCandidatesByJob = async (req, res) => {
       .populate("shiftId")
       .lean();
 
-    if (!applications.length) return res.status(404).json({ message: "No candidates found" });
+      if (!applications.length) {
+        return res.status(200).json({
+          success: true,
+          job: {
+            jobId: job._id,
+            jobName: job.jobName,
+            employer: employerName,
+            date: jobDate,
+            currentHeadCount,
+            jobStatus: "No Applicants",
+          },
+          totalCandidates: 0,
+          confirmedCount: 0,
+          pendingCount: 0,
+          standbyCount: 0,
+          candidates: [],
+        });
+      }
+      
 
     // ✅ Organize Candidates (By Default: Show All)
     const candidates = applications.map((app) => {

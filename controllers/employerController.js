@@ -245,17 +245,17 @@ exports.getEmployerById = async (req, res) => {
 
 exports.getOutletOverview = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { outletId } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!mongoose.Types.ObjectId.isValid(outletId)) {
       return res.status(400).json({ message: "Invalid outlet ID" });
     }
 
-    const outlet = await Outlet.findById(id).populate("employer", "companyLegalName").lean();
+    const outlet = await Outlet.findById(outletId).populate("employer", "companyLegalName").lean();
     if (!outlet) return res.status(404).json({ message: "Outlet not found" });
 
     // Fetch jobs related to this outlet
-    const jobs = await Job.find({ outlet: id })
+    const jobs = await Job.find({ outlet: outletId })
       .populate("shifts")
       .lean();
 
