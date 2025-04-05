@@ -8,16 +8,79 @@ const moment = require("moment");
 
 exports.getAllJobs = async (req, res) => {
   try {
-    const { page = 1, limit = 10, jobName, employerId, outletId, status, city } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      jobName,
+      employerId,
+      outletId,
+      status,
+      city,
+      startDate,
+      endDate,
+      minShifts,
+      maxShifts,
+      sortBy = "createdAt", // createdAt, date, totalWage
+      sortOrder = "desc",   // asc or desc
+    } = req.query;
 
     const filters = {};
     if (jobName) filters.jobName = { $regex: jobName, $options: "i" };
-    if (status) filters.jobStatus = status;
     if (employerId && mongoose.Types.ObjectId.isValid(employerId)) filters.company = employerId;
     if (outletId && mongoose.Types.ObjectId.isValid(outletId)) filters.outlet = outletId;
     if (city) filters.location = { $regex: city, $options: "i" };
+    if (startDate && endDate) {
+      filters.date = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
+      };
+    }
 
-    const jobs = await Job.find(filters)
+    // For high no show status, collect jobIds separately
+    let highNoShowJobIds = [];
+    if (status === "highNoShow") {
+      const lowAttendanceJobs = await Application.aggregate([
+        {
+          $group: {
+            _id: "$jobId",
+            total: { $sum: 1 },
+            completed: {
+              $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] },
+            },
+          },
+        },
+        {
+          $project: {
+            attendanceRate: {
+              $cond: [
+                { $eq: ["$total", 0] },
+                100,
+                { $multiply: [{ $divide: ["$completed", "$total"] }, 100] },
+              ],
+            },
+          },
+        },
+        {
+          $match: {
+            attendanceRate: { $lt: 50 },
+          },
+        },
+      ]);
+      highNoShowJobIds = lowAttendanceJobs.map((job) => job._id);
+      filters._id = { $in: highNoShowJobIds };
+    } else if (status) {
+      filters.jobStatus = status;
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    let sortField = sortBy;
+    let sortDir = sortOrder === "asc" ? 1 : -1;
+    if (sortBy === "totalWage") {
+      sortField = null; // manual sort later
+    }
+
+    let jobs = await Job.find(filters)
       .populate("company", "companyLegalName companyLogo")
       .populate("outlet", "outletName outletAddress outletImage")
       .populate({
@@ -25,6 +88,9 @@ exports.getAllJobs = async (req, res) => {
         model: "Shift",
         select: "startTime startMeridian endTime endMeridian vacancy standbyVacancy duration breakHours breakType rateType payRate totalWage",
       })
+      .sort(sortField ? { [sortField]: sortDir } : {}) // only apply if valid field
+      .skip(skip)
+      .limit(Number(limit))
       .lean();
 
     const applicationCounts = await Application.aggregate([
@@ -32,7 +98,9 @@ exports.getAllJobs = async (req, res) => {
         $group: {
           _id: "$jobId",
           totalApplications: { $sum: 1 },
-          standbyApplications: { $sum: { $cond: [{ $eq: ["$isStandby", true] }, 1, 0] } },
+          standbyApplications: {
+            $sum: { $cond: [{ $eq: ["$isStandby", true] }, 1, 0] },
+          },
         },
       },
     ]);
@@ -45,7 +113,7 @@ exports.getAllJobs = async (req, res) => {
       };
     });
 
-    const formattedJobs = jobs.map((job) => {
+    let formattedJobs = jobs.map((job) => {
       let totalVacancy = 0;
       let totalStandby = 0;
       let totalShifts = job.shifts.length;
@@ -72,22 +140,14 @@ exports.getAllJobs = async (req, res) => {
         standbyApplications: 0,
       };
 
-
-      // Determine Job Status Logic
       const today = moment().startOf("day");
       const jobDate = moment(job.date).startOf("day");
 
       let jobStatus = "Unknown";
-
-      if (job.isCancelled) {
-        jobStatus = "Cancelled";
-      } else if (jobDate.isAfter(today)) {
-        jobStatus = "Upcoming";
-      } else if (applicationStats.totalApplications >= totalVacancy) {
-        jobStatus = "Completed";
-      } else {
-        jobStatus = "Active";
-      }
+      if (job.isCancelled) jobStatus = "Cancelled";
+      else if (jobDate.isAfter(today)) jobStatus = "Upcoming";
+      else if (applicationStats.totalApplications >= totalVacancy) jobStatus = "Completed";
+      else jobStatus = "Active";
 
       return {
         _id: job._id,
@@ -107,11 +167,29 @@ exports.getAllJobs = async (req, res) => {
         vacancyUsers: `${applicationStats.totalApplications}/${totalVacancy}`,
         standbyUsers: `${applicationStats.standbyApplications}/${totalStandby}`,
         totalWage: `$${shiftsArray.reduce((acc, shift) => acc + parseFloat(shift.totalWage.replace("$", "")), 0)}`,
-        jobStatus, // Now dynamically set
+        jobStatus,
         shiftSummary: { totalVacancy, totalStandby, totalShifts },
         shifts: shiftsArray,
       };
     });
+
+    // Filter by shift count (minShifts/maxShifts)
+    if (minShifts || maxShifts) {
+      const min = parseInt(minShifts) || 0;
+      const max = parseInt(maxShifts) || Infinity;
+      formattedJobs = formattedJobs.filter((job) =>
+        job.shiftSummary.totalShifts >= min && job.shiftSummary.totalShifts <= max
+      );
+    }
+
+    // Sort manually by totalWage if requested
+    if (sortBy === "totalWage") {
+      formattedJobs.sort((a, b) =>
+        sortOrder === "asc"
+          ? parseFloat(a.totalWage.replace("$", "")) - parseFloat(b.totalWage.replace("$", ""))
+          : parseFloat(b.totalWage.replace("$", "")) - parseFloat(a.totalWage.replace("$", ""))
+      );
+    }
 
     const totalActiveJobs = formattedJobs.filter((job) => job.jobStatus === "Active").length;
     const totalUpcomingJobs = formattedJobs.filter((job) => job.jobStatus === "Upcoming").length;
@@ -123,7 +201,10 @@ exports.getAllJobs = async (req, res) => {
     ]);
     const totalCompletedJobs = attendanceData[0]?.count || 0;
     const totalApplications = await Application.countDocuments();
-    const attendanceRate = totalApplications > 0 ? ((totalCompletedJobs / totalApplications) * 100).toFixed(2) : 0;
+    const attendanceRate =
+      totalApplications > 0
+        ? ((totalCompletedJobs / totalApplications) * 100).toFixed(2)
+        : 0;
 
     res.status(200).json({
       success: true,
@@ -137,9 +218,13 @@ exports.getAllJobs = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in getAllJobs:", error);
-    res.status(500).json({ error: "Failed to fetch jobs", details: error.message });
+    res.status(500).json({
+      error: "Failed to fetch jobs",
+      details: error.message,
+    });
   }
 };
+
 
 
 
