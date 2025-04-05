@@ -68,9 +68,21 @@ exports.getAllJobs = async (req, res) => {
       ]);
       highNoShowJobIds = lowAttendanceJobs.map((job) => job._id);
       filters._id = { $in: highNoShowJobIds };
+    } else if (status === "Cancelled") {
+      filters.isCancelled = true;
+    } else if (status === "Upcoming") {
+      filters.date = { $gt: new Date() };
+  filters.isCancelled = false;
+    } else if (status === "Active") {
+      filters.date = { $lte: new Date() };
+      filters.isCancelled = { $ne: true };
     } else if (status) {
       filters.jobStatus = status;
+    } else {
+      // ✅ Include all jobs including cancelled by default
+      // Do NOT add filters.isCancelled — let it be free
     }
+    
 
     const skip = (Number(page) - 1) * Number(limit);
 
@@ -647,20 +659,22 @@ exports.deleteJob = async (req, res) => {
       return res.status(404).json({ message: "Job not found" });
     }
 
-    // Remove linked shifts
-    await Shift.deleteMany({ job: job._id }).session(session);
+    // Mark job as cancelled (soft delete)
+    job.isCancelled = true;
+    await job.save({ session });
 
-    // Delete the job
-    await Job.findByIdAndDelete(req.params.id).session(session);
+    // Optional: delete associated shifts (or you can keep them if needed)
+    await Shift.deleteMany({ job: job._id }).session(session);
 
     await session.commitTransaction();
     session.endSession();
 
-    return res.status(200).json({ success: true, message: "Job and associated shifts deleted successfully" });
+    return res.status(200).json({ success: true, message: "Job cancelled successfully" });
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    console.error("Error deleting job:", error);
+    console.error("Error cancelling job:", error);
     return res.status(500).json({ message: "Internal server error", error });
   }
 };
+

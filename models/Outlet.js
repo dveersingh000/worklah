@@ -4,7 +4,7 @@ const OutletSchema = new mongoose.Schema(
   {
     outletName: { type: String, required: true },
     outletAddress: { type: String, required: true },
-    outletType: { type: String, enum: ["Restaurant", "Bar", "Cafe", "Other"] },
+    outletType: { type: String, enum: ["Restaurant", "Bar", "Cafe", "Other", "Retail"] },
     outletImage: { type: String, default: '/static/Job.png' },
     employer: { type: mongoose.Schema.Types.ObjectId, ref: "Employer" },
 

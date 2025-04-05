@@ -11,6 +11,7 @@ const jobSchema = new mongoose.Schema({
   industry : { type: String, enum: ["Retail", "Restaurant", "Hotel", "Healthcare"], default: "Restaurant" },
   outletImage: { type: String },
   shifts: [{ type: mongoose.Schema.Types.ObjectId, ref: "Shift" }], // Reference to Shift model
+  isCancelled: { type: Boolean, default: false },
   jobScope: { type: [String], required: true },
   jobRequirements: { type: [String], required: true },
   createdAt: { type: Date, default: Date.now },

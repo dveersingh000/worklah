@@ -10,7 +10,7 @@ router.get('/:id', getJobById); // ✅ Get a specific job
 router.post('/', createJob); // ✅ Create a new job
 router.put('/:id', updateJob); // ✅ Update a job
 router.patch('/:id/status', changeJobStatus); // ✅ Change job status
-router.delete('/:id', deleteJob); // ✅ Delete a job
+router.put('/cancel/:id', deleteJob); // ✅ Delete a job
 router.post("/:id/duplicate", duplicateJob); // ✅ Duplicate Job
 router.patch("/:id/deactivate", deactivateJob); // ✅ Deactivate Job
 router.patch("/:id/cancel", cancelJob); // ✅ Cancel Job
