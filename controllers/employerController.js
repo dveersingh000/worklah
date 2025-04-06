@@ -147,29 +147,51 @@ exports.createEmployer = async (req, res) => {
 
 
 // ✅ Get all employers
+// ✅ Get all employers with pagination and filtering
 exports.getEmployers = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
+    const { page = 1, limit = 10, search = "", contractStatus, serviceAgreement } = req.query;
     const skip = (page - 1) * limit;
 
-    const employers = await Employer.find()
-      .populate("outlets") // Ensure outlets are populated
-      .sort({ createdAt: -1 }) // Sort by newest first
+    // Build filter object
+    const filter = {};
+
+    if (search) {
+      filter.$or = [
+        { companyLegalName: { $regex: search, $options: "i" } },
+        { companyEmail: { $regex: search, $options: "i" } },
+        { companyNumber: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    if (contractStatus) {
+      filter.contractStatus = contractStatus;
+    }
+
+    if (serviceAgreement) {
+      filter.serviceAgreement = serviceAgreement;
+    }
+
+    const employers = await Employer.find(filter)
+      .populate("outlets")
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
-    const totalEmployers = await Employer.countDocuments();
+    const totalEmployers = await Employer.countDocuments(filter);
 
     res.status(200).json({
       employers,
       totalPages: Math.ceil(totalEmployers / limit),
       currentPage: parseInt(page),
+      totalEmployers,
     });
   } catch (error) {
     console.error("Error fetching employers:", error);
     res.status(500).json({ message: "Internal server error", error });
   }
 };
+
 
 
 // ✅ Get employer by ID
