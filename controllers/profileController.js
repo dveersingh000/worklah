@@ -96,6 +96,8 @@ exports.completeProfile = async (req, res) => {
     profile.gender = gender;
     profile.postalCode = postalCode;
 
+    const files = req.files;
+
     // ✅ Handle Cloudinary Uploads Based on Employment Status
     switch (user.employmentStatus) {
       case "Singaporean/Permanent Resident":
@@ -103,8 +105,8 @@ exports.completeProfile = async (req, res) => {
 
         profile.nricNumber = nricNumber;
         profile.nricImages = {
-          front: req.files?.nricFront?.[0]?.path || null,
-          back: req.files?.nricBack?.[0]?.path || null,
+          front: files?.nricFront?.[0]?.path || null,
+          back: files?.nricBack?.[0]?.path || null,
         };
         break;
 
@@ -113,10 +115,10 @@ exports.completeProfile = async (req, res) => {
 
         profile.finNumber = finNumber;
         profile.finImages = {
-          front: req.files?.finFront?.[0]?.path || null,
-          back: req.files?.finBack?.[0]?.path || null,
+          front: files?.finFront?.[0]?.path || null,
+          back: files?.finBack?.[0]?.path || null,
         };
-        profile.plocImage = req.files?.plocImage?.[0]?.path || null;
+        profile.plocImage = files?.plocImage?.[0]?.path || null;
         profile.plocExpiryDate = plocExpiryDate;
         break;
 
@@ -125,13 +127,13 @@ exports.completeProfile = async (req, res) => {
 
         profile.studentIdNumber = studentIdNumber;
         profile.schoolName = schoolName;
-        profile.studentCardImage = req.files?.studentCard?.[0]?.path || null;
+        profile.studentCardImage = files?.studentCard?.[0]?.path || null;
         break;
     }
 
     // ✅ Handle Profile Picture Upload to Cloudinary
-    if (req.files?.selfie?.[0]?.path) {
-      user.profilePicture = req.files.selfie[0].path;
+    if (files?.selfie?.[0]?.path) {
+      user.profilePicture = files.selfie[0].path;
     }
 
     await profile.save();

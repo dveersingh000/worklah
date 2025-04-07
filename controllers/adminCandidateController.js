@@ -440,6 +440,15 @@ exports.getCandidateProfile = async (req, res) => {
         nric: user.profileId?.nricNumber ? user.profileId.nricNumber.replace(/.(?=.{4})/g, "*") : "N/A",
         icNumber: user.profileId?.finNumber || "N/A",
         foodHygieneCert: user.profileId?.foodHygieneCert || "N/A", // ✅ Food & Hygiene Certificate
+
+        // ✅ Add uploaded image URLs
+  selfie: user.profileId?.selfie || null,
+  nricFront: user.profileId?.nricImages?.front || null,
+  nricBack: user.profileId?.nricImages?.back || null,
+  finFront: user.profileId?.finFront || null,
+  finBack: user.profileId?.finBack || null,
+  plocImage: user.profileId?.plocImage || null,
+  studentCard: user.profileId?.studentCard || null,
       },
     };
 

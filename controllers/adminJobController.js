@@ -218,14 +218,22 @@ exports.getAllJobs = async (req, res) => {
         ? ((totalCompletedJobs / totalApplications) * 100).toFixed(2)
         : 0;
 
+    // ✅ Total jobs before pagination (from DB, not formatted)
+    const totalMatchingJobs = await Job.countDocuments(filters);
+    const totalPages = Math.ceil(totalMatchingJobs / limit);
+
     res.status(200).json({
       success: true,
-      totalJobs: formattedJobs.length,
+      totalJobs: totalMatchingJobs, // total jobs in DB after filters
+      totalJobsOnCurrentPage: formattedJobs.length,
+      totalPages,
+      currentPage: Number(page),
+      pageLimit: Number(limit),
       totalActiveJobs,
       totalUpcomingJobs,
       totalCancelledJobs,
       averageAttendanceRate: `${attendanceRate}%`,
-      page: Number(page),
+      // page: Number(page),
       jobs: formattedJobs,
     });
   } catch (error) {
