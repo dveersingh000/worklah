@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
 const User = require("../models/User"); 
+const Admin = require("../models/Admin");
 dotenv.config();
 
 const authMiddleware = async (req, res, next) => {
@@ -16,10 +17,12 @@ const authMiddleware = async (req, res, next) => {
 
     // ✅ If admin login (role only)
     if (decoded.role === "ADMIN" && !decoded._id && !decoded.id) {
+      const adminDoc = await Admin.findOne({ email: "admin@example.com" });
       req.user = {
         email: "admin@example.com",
         fullName: "Admin",
-        role: "ADMIN"
+        role: "ADMIN",
+        profilePicture: adminDoc?.profilePicture || "/assets/profile.svg"
       };
       return next();
     }

@@ -2,6 +2,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const dotenv = require("dotenv");
+const Admin = require("../models/Admin");
 
 const { createToken, setCookie, clearCookie } = require("../utils/auth");
 // const crypto = require("crypto");
@@ -69,13 +70,18 @@ exports.loginUser = async (req, res) => {
     // Admin login
     if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
       const token = createToken({ role: 'ADMIN' });
+
+      const adminDoc = await Admin.findOne({ email: ADMIN_EMAIL });
+  const profilePicture = adminDoc?.profilePicture || "/assets/profile.svg";
+
       setCookie(res, token);
       return res.json({
         token, // ✅ send token to frontend explicitly
         user: {
           email: ADMIN_EMAIL,
           fullName: 'Admin',
-          role: 'ADMIN'
+          role: 'ADMIN',
+          profilePicture,
         }
       });
     }
@@ -129,8 +135,34 @@ exports.updateUser = async (req, res) => {
 
 
 exports.authenticated = async (req, res) => {
-  res.json(req.user);
+  if (!req.user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  if (req.user.role === 'ADMIN') {
+    return res.json({
+      user: {
+        fullName: req.user.fullName,
+        email: req.user.email,
+        role: 'ADMIN',
+        profilePicture: req.user.profilePicture || '/assets/profile.svg'
+      }
+    });
+  }
+
+  // Regular user
+  res.json({
+    user: {
+      _id: req.user._id,
+      fullName: req.user.fullName,
+      email: req.user.email,
+      role: req.user.role,
+      profilePicture: req.user.profilePicture || '/assets/profile.svg'
+    }
+  });
 };
+
+
 // exports.generateOtp = async (req, res) => {
 //     const { mobile } = req.body;
 //     try {

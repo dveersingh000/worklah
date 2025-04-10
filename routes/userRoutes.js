@@ -14,5 +14,6 @@ router.post("/login", userController.loginUser);
 router.get('/authenticated', authMiddleware, authenticated);
 router.patch("/:id", userController.updateUser);
 router.post("/logout", userController.logoutUser);
+router.get("/me", authMiddleware, authenticated);
 
 module.exports = router;

@@ -4,6 +4,53 @@ const Application = require("../models/Application");
 const Payment = require("../models/Payment");
 const mongoose = require("mongoose");
 
+
+// controllers/adminController.js
+const Admin = require("../models/Admin");
+
+exports.uploadAdminProfileImage = async (req, res) => {
+  try {
+    const image = req.file?.path;
+    if (!image) return res.status(400).json({ error: "No image uploaded" });
+
+    const email = "admin@example.com";
+
+    const admin = await Admin.findOneAndUpdate(
+      { email },
+      { profilePicture: image },
+      { new: true, upsert: true }
+    );
+
+    return res.status(200).json({
+      message: "Profile image uploaded successfully",
+      imageUrl: admin.profilePicture,
+    });
+  } catch (error) {
+    console.error("Error uploading admin profile image:", error);
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+};
+
+exports.getAdminProfileImage = async (req, res) => {
+  try {
+    const email = "admin@example.com"; // same static email as upload logic
+    const admin = await Admin.findOne({ email });
+
+    if (!admin || !admin.profilePicture) {
+      return res.status(404).json({ error: "Profile image not found" });
+    }
+
+    return res.status(200).json({
+      imageUrl: admin.profilePicture,
+    });
+  } catch (error) {
+    console.error("Error fetching admin profile image:", error);
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+};
+
+
+
 // 🚀 **Get Dashboard Overview**
 exports.getDashboardOverview = async (req, res) => {
   try {
@@ -38,21 +85,90 @@ exports.getDashboardOverview = async (req, res) => {
 };
 
 // 🚀 **Get Job Posting Stats**
-exports.getJobPostingStats = async (req, res) => {
-  const { month } = req.query;
+exports.getPostedJobsSummary = async (req, res) => {
   try {
-    const jobStats = await Job.aggregate([
-      { $project: { month: { $month: "$createdAt" } } },
-      { $match: { month: parseInt(month, 10) } },
-      { $group: { _id: "$month", count: { $sum: 1 } } },
+    const jobs = await Job.find({})
+      .populate("company", "companyLegalName")
+      .sort({ createdAt: -1 }) // most recent jobs first
+      .limit(4)
+      .select("jobName jobIcon company");
+
+    const applications = await Application.aggregate([
+      {
+        $group: {
+          _id: "$jobId",
+          applicants: { $sum: 1 },
+        },
+      },
     ]);
 
-    res.status(200).json(jobStats);
+    const applicantMap = {};
+    applications.forEach(app => {
+      applicantMap[app._id.toString()] = app.applicants;
+    });
+
+    const result = jobs.map(job => ({
+      _id: job._id,
+      jobName: job.jobName,
+      jobIcon: job.jobIcon || "/static/jobIcon.png",
+      employerName: job.company?.companyLegalName || "N/A",
+      applicants: applicantMap[job._id.toString()] || 0,
+    }));
+
+    res.status(200).json(result);
   } catch (error) {
-    console.error("Error fetching job posting stats:", error);
-    res.status(500).json({ error: "Error fetching job posting stats" });
+    console.error("Error fetching posted jobs summary:", error);
+    res.status(500).json({ error: "Error fetching posted jobs summary" });
   }
 };
+
+exports.getAllPostedJobs = async (req, res) => {
+  try {
+    const { month } = req.query;
+
+    const matchQuery = {};
+    if (month) {
+      const start = new Date(new Date().getFullYear(), month - 1, 1);
+      const end = new Date(new Date().getFullYear(), month, 0, 23, 59, 59);
+      matchQuery.createdAt = { $gte: start, $lte: end };
+    }
+
+    const jobs = await Job.find(matchQuery)
+      .populate("company", "companyLegalName")
+      .sort({ createdAt: -1 })
+      .select("jobName jobIcon company createdAt");
+
+    const applications = await Application.aggregate([
+      {
+        $group: {
+          _id: "$jobId",
+          applicants: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const applicantMap = {};
+    applications.forEach(app => {
+      applicantMap[app._id.toString()] = app.applicants;
+    });
+
+    const result = jobs.map(job => ({
+      _id: job._id,
+      jobName: job.jobName,
+      jobIcon: job.jobIcon || "/static/jobIcon.png",
+      employerName: job.company?.companyLegalName || "N/A",
+      applicants: applicantMap[job._id.toString()] || 0,
+      createdAt: job.createdAt,
+    }));
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error fetching all posted jobs:", error);
+    res.status(500).json({ error: "Error fetching all posted jobs" });
+  }
+};
+
+
 
 // 🚀 **Get Revenue Stats**
 exports.getRevenueStats = async (req, res) => {
@@ -109,18 +225,19 @@ exports.getApplicationDetails = async (req, res) => {
 };
 
 // 🚀 **Get New Applications**
-exports.getNewApplications = async (req, res) => {
+exports.getNewRegistrations = async (req, res) => {
   try {
-    const applications = await Application.find({ status: "Applied" })
-      .populate("userId", "fullName phoneNumber profilePicture")
-      .populate("jobId", "jobName company");
+    // You can filter further based on time or specific status if needed
+    const newUsers = await User.find({ status: { $in: ["Pending", "Incomplete Profile"] } })
+      .select("fullName phoneNumber email profilePicture status createdAt");
 
-    res.status(200).json(applications);
+    res.status(200).json(newUsers);
   } catch (error) {
-    console.error("Error fetching new applications:", error);
-    res.status(500).json({ error: "Error fetching new applications" });
+    console.error("Error fetching new user registrations:", error);
+    res.status(500).json({ error: "Error fetching new user registrations" });
   }
 };
+
 
 // 🚀 **Get Pending Payments**
 exports.getPendingPayments = async (req, res) => {

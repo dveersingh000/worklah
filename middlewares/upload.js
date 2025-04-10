@@ -11,6 +11,14 @@ const profileStorage = new CloudinaryStorage({
     transformation: [{ width: 500, height: 500, crop: "fill" }], // Resize profile pictures
   },
 });
+const adminProfileStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "AdminPanel/ProfilePictures",
+    allowed_formats: ["jpg", "jpeg", "png"],
+    transformation: [{ width: 500, height: 500, crop: "fill" }], // Resize profile pictures
+  },
+});
 
 // Cloudinary Storage for General Document Uploads (NRIC, FIN, etc.)
 const generalStorage = new CloudinaryStorage({
@@ -21,8 +29,10 @@ const generalStorage = new CloudinaryStorage({
   },
 });
 
+
 // Multer Uploads
 const uploadProfile = multer({ storage: profileStorage }); // For Profile Picture Upload
 const uploadGeneral = multer({ storage: generalStorage }); // For General Documents
+const uploadAdminProfile = multer({ storage: adminProfileStorage }); // For Admin Profile Picture Upload
 
-module.exports = { uploadProfile, uploadGeneral };
+module.exports = { uploadProfile, uploadGeneral, uploadAdminProfile };
